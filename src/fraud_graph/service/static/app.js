@@ -237,22 +237,54 @@ function layoutNodes(nodes) {
   const root = nodes.find((node) => node.root);
   if (!root) return new Map();
   const positions = new Map([[root.id, { x: 500, y: 310 }]]);
+  // Keep each ring sparse enough for the account cards and their labels.
+  // The graph is intentionally deterministic so the same case is easy to compare.
   const others = nodes.filter((node) => !node.root).sort((a, b) => a.minHop - b.minHop || a.id.localeCompare(b.id));
-  const rings = new Map();
-  others.forEach((node) => {
-    const ring = Math.max(1, Math.min(node.minHop, 4));
-    if (!rings.has(ring)) rings.set(ring, []);
-    rings.get(ring).push(node);
+  const ringCapacity = 8;
+  const rings = [];
+  others.forEach((node, index) => {
+    const ring = Math.floor(index / ringCapacity);
+    if (!rings[ring]) rings[ring] = [];
+    rings[ring].push(node);
   });
-  rings.forEach((ringNodes, ring) => {
-    const radiusX = 130 + ring * 72;
-    const radiusY = 96 + ring * 42;
+  rings.forEach((ringNodes, ringIndex) => {
+    const ring = ringIndex + 1;
+    const radiusX = 148 + ring * 88;
+    const radiusY = 98 + ring * 54;
     ringNodes.forEach((node, index) => {
-      const angle = -Math.PI / 2 + (Math.PI * 2 * index) / ringNodes.length + ring * 0.36;
+      const angle = -Math.PI / 2 + (Math.PI * 2 * index) / ringNodes.length + ring * 0.22;
       positions.set(node.id, { x: 500 + Math.cos(angle) * radiusX, y: 310 + Math.sin(angle) * radiusY });
     });
   });
   return positions;
+}
+
+function nodeGeometry(node) {
+  return node.root
+    ? { width: 188, height: 68 }
+    : { width: 144, height: 56 };
+}
+
+function edgePaddingForNode(node, dx, dy) {
+  const geometry = nodeGeometry(node);
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const horizontal = Math.abs(dx) / length;
+  const vertical = Math.abs(dy) / length;
+  const horizontalHit = horizontal ? geometry.width / 2 / horizontal : Number.POSITIVE_INFINITY;
+  const verticalHit = vertical ? geometry.height / 2 / vertical : Number.POSITIVE_INFINITY;
+  return Math.min(horizontalHit, verticalHit) + 8;
+}
+
+function nodeTone(node) {
+  if (node.root) return "root-node";
+  if (node.directions.has("incoming") && node.directions.has("outgoing")) return "both-node";
+  return node.directions.has("incoming") ? "incoming-node" : "outgoing-node";
+}
+
+function nodeFlowLabel(node) {
+  if (node.root) return "根账户";
+  if (node.directions.has("incoming") && node.directions.has("outgoing")) return `${node.minHop} 跳 · 双向关联`;
+  return `${node.minHop} 跳 · ${directionLabel([...node.directions][0])}关联`;
 }
 
 function renderGraph() {
@@ -261,37 +293,48 @@ function renderGraph() {
   const graph = buildGraphData(filteredPaths);
   elements["graph-empty"].hidden = graph.edges.length > 0;
   const positions = layoutNodes(graph.nodes);
+  const nodesById = new Map(graph.nodes.map((node) => [node.id, node]));
   const edgeMarkup = graph.edges.map((edge) => {
     const from = positions.get(edge.payer_account_id);
     const to = positions.get(edge.payee_account_id);
-    if (!from || !to) return "";
+    const fromNode = nodesById.get(edge.payer_account_id);
+    const toNode = nodesById.get(edge.payee_account_id);
+    if (!from || !to || !fromNode || !toNode) return "";
     const dx = to.x - from.x;
     const dy = to.y - from.y;
     const length = Math.max(1, Math.hypot(dx, dy));
-    const startX = from.x + (dx / length) * 28;
-    const startY = from.y + (dy / length) * 28;
-    const endX = to.x - (dx / length) * 31;
-    const endY = to.y - (dy / length) * 31;
-    const color = edge.direction === "incoming" ? "#2563eb" : "#b4534b";
+    const startPadding = edgePaddingForNode(fromNode, dx, dy);
+    const endPadding = edgePaddingForNode(toNode, -dx, -dy);
+    const startX = from.x + (dx / length) * startPadding;
+    const startY = from.y + (dy / length) * startPadding;
+    const endX = to.x - (dx / length) * endPadding;
+    const endY = to.y - (dy / length) * endPadding;
+    const color = edge.direction === "incoming" ? "#2563eb" : "#c24145";
     const marker = edge.direction === "incoming" ? "arrow-in" : "arrow-out";
+    const midpointX = (startX + endX) / 2;
+    const midpointY = (startY + endY) / 2;
     return `
       <g class="edge-group" data-transaction="${escapeHtml(edge.transaction_id)}">
+        <line class="graph-edge-hit" x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY}"></line>
         <line class="graph-edge" x1="${startX}" y1="${startY}" x2="${endX}" y2="${endY}" stroke="${color}" marker-end="url(#${marker})"></line>
-        <text class="edge-label" x="${(from.x + to.x) / 2}" y="${(from.y + to.y) / 2 - 6}">${formatAmount.format(Number(edge.amount))}</text>
+        <text class="edge-label" x="${midpointX}" y="${midpointY - 8}">${formatAmount.format(Number(edge.amount))}</text>
       </g>`;
   }).join("");
   const nodeMarkup = graph.nodes.map((node) => {
     const position = positions.get(node.id);
-    const incoming = node.directions.has("incoming");
-    const outgoing = node.directions.has("outgoing");
-    const fill = node.root ? "#b4534b" : incoming && outgoing ? "#475569" : incoming ? "#2563eb" : "#c47a39";
-    const stroke = node.root ? "#7e302b" : "#ffffff";
-    const radius = node.root ? 31 : Math.max(19, 25 - node.minHop * 2);
+    const geometry = nodeGeometry(node);
+    const x = -geometry.width / 2;
+    const y = -geometry.height / 2;
+    const scoreText = node.root ? `风险 ${formatScore.format(state.workspace.evidence.score.risk_score)}` : nodeFlowLabel(node);
     return `
-      <g class="graph-node ${node.root ? "root-node" : ""}" data-node="${escapeHtml(node.id)}" transform="translate(${position.x} ${position.y})">
-        <circle r="${radius}" fill="${fill}" stroke="${stroke}"></circle>
-        <text y="${node.root ? -2 : 3}" fill="#fff">${escapeHtml(shortId(node.id))}</text>
-        ${node.root ? '<text class="node-meta" y="14" fill="#fff">根账户</text>' : ""}
+      <g class="graph-node ${nodeTone(node)}" data-node="${escapeHtml(node.id)}" transform="translate(${position.x} ${position.y})">
+        <title>${escapeHtml(node.id)} · ${escapeHtml(scoreText)}</title>
+        <rect class="node-halo" x="${x - 6}" y="${y - 6}" width="${geometry.width + 12}" height="${geometry.height + 12}" rx="${node.root ? 18 : 15}"></rect>
+        <rect class="node-card" x="${x}" y="${y}" width="${geometry.width}" height="${geometry.height}" rx="${node.root ? 14 : 11}"></rect>
+        <circle class="node-avatar" cx="${x + 22}" cy="0" r="${node.root ? 17 : 13}"></circle>
+        <text class="node-avatar-label" x="${x + 22}" y="4">${node.root ? "根" : escapeHtml(shortId(node.id).slice(0, 2))}</text>
+        <text class="node-id" x="${x + (node.root ? 49 : 43)}" y="-4">${escapeHtml(shortId(node.id))}</text>
+        <text class="node-meta" x="${x + (node.root ? 49 : 43)}" y="15">${escapeHtml(scoreText)}</text>
       </g>`;
   }).join("");
   elements["graph-viewport"].innerHTML = edgeMarkup + nodeMarkup;

@@ -563,10 +563,9 @@ input:focus-visible {
   flex: 1;
   min-height: 360px;
   overflow: hidden;
-  background-color: #fafbfa;
-  background-image: linear-gradient(#e9edeb 1px, transparent 1px),
-    linear-gradient(90deg, #e9edeb 1px, transparent 1px);
-  background-size: 32px 32px;
+  background-color: #f6f8fc;
+  background-image: radial-gradient(#d9e2ef 1px, transparent 1px);
+  background-size: 22px 22px;
 }
 
 #fund-graph {
@@ -583,21 +582,36 @@ input:focus-visible {
 
 .graph-edge {
   fill: none;
-  stroke-width: 2;
+  stroke-width: 1.8;
+  stroke-linecap: round;
   cursor: pointer;
-  opacity: 0.74;
+  opacity: 0.62;
 }
 
 .graph-edge:hover,
 .graph-edge.selected {
-  stroke-width: 4;
+  stroke-width: 3.6;
   opacity: 1;
 }
 
+.graph-edge-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  stroke-linecap: round;
+  cursor: pointer;
+}
+
 .edge-label {
-  fill: #78827f;
+  fill: #475569;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 9px;
+  font-size: 10px;
+  font-weight: 700;
+  paint-order: stroke;
+  stroke: #f6f8fc;
+  stroke-width: 5px;
+  stroke-linejoin: round;
+  text-anchor: middle;
   pointer-events: none;
 }
 
@@ -605,35 +619,109 @@ input:focus-visible {
   cursor: pointer;
 }
 
+.graph-node rect,
 .graph-node circle {
-  stroke-width: 3;
-  transition: r 120ms ease, stroke-width 120ms ease;
+  transition: filter 140ms ease, opacity 140ms ease, stroke-width 140ms ease, transform 140ms ease;
 }
 
-.graph-node:hover circle,
-.graph-node.selected circle {
-  stroke-width: 5;
+.graph-node .node-halo {
+  fill: transparent;
+  stroke: #cbd5e1;
+  stroke-width: 1;
+  stroke-dasharray: 2 5;
+  opacity: 0.9;
+  pointer-events: none;
 }
 
-.graph-node text {
+.graph-node .node-card {
+  fill: #ffffff;
+  stroke: #cbd5e1;
+  stroke-width: 1.35;
+  filter: drop-shadow(0 4px 7px rgba(15, 23, 42, 0.09));
+}
+
+.graph-node .node-avatar {
+  stroke: #ffffff;
+  stroke-width: 2;
+}
+
+.graph-node .node-avatar-label {
+  fill: #ffffff;
+  font-family: Inter, "PingFang SC", sans-serif;
+  font-size: 9px;
+  font-weight: 750;
+  text-anchor: middle;
+  pointer-events: none;
+}
+
+.graph-node .node-id {
   fill: var(--ink);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
-  font-weight: 650;
+  font-size: 12px;
+  font-weight: 750;
+  text-anchor: start;
   pointer-events: none;
-  text-anchor: middle;
 }
 
 .graph-node .node-meta {
   fill: var(--muted);
   font-family: Inter, "PingFang SC", sans-serif;
-  font-size: 8px;
-  font-weight: 500;
+  font-size: 9px;
+  font-weight: 600;
+  text-anchor: start;
+  pointer-events: none;
 }
 
-.graph-node.root-node text,
-.graph-node.root-node .node-meta {
-  fill: #ffffff;
+.graph-node.incoming-node .node-avatar {
+  fill: #2563eb;
+}
+
+.graph-node.outgoing-node .node-avatar {
+  fill: #c24145;
+}
+
+.graph-node.both-node .node-avatar {
+  fill: #475569;
+}
+
+.graph-node.incoming-node .node-card {
+  stroke: #bfdbfe;
+}
+
+.graph-node.outgoing-node .node-card {
+  stroke: #fecaca;
+}
+
+.graph-node.both-node .node-card {
+  stroke: #cbd5e1;
+}
+
+.graph-node.root-node .node-halo {
+  fill: #fff1f2;
+  stroke: #fda4af;
+  stroke-width: 1.5;
+  stroke-dasharray: 3 5;
+}
+
+.graph-node.root-node .node-card {
+  stroke: #fda4af;
+  stroke-width: 1.8;
+}
+
+.graph-node.root-node .node-avatar {
+  fill: #b4534b;
+}
+
+.graph-node:hover .node-card,
+.graph-node.selected .node-card {
+  stroke-width: 2.5;
+  filter: drop-shadow(0 7px 11px rgba(15, 23, 42, 0.16));
+}
+
+.graph-node:hover .node-halo,
+.graph-node.selected .node-halo {
+  opacity: 1;
+  stroke-width: 2;
 }
 
 .graph-empty {
@@ -684,7 +772,7 @@ input:focus-visible {
 }
 
 .legend-out {
-  background: #c47a39;
+  background: #c24145;
 }
 
 .transaction-inspector {
