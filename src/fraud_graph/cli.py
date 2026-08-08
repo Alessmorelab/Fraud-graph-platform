@@ -286,6 +286,12 @@ def serve(
     score_version: Annotated[str, typer.Option()],
     host: Annotated[str, typer.Option()] = "127.0.0.1",
     port: Annotated[int, typer.Option(min=1, max=65535)] = 8080,
+    case_sample_version: Annotated[str | None, typer.Option()] = None,
+    review_submission_dir: Annotated[
+        Path | None, typer.Option(file_okay=False)
+    ] = None,
+    enable_review_writes: Annotated[bool, typer.Option()] = False,
+    trust_review_identity_headers: Annotated[bool, typer.Option()] = False,
     config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)] = Path(
         "config/default.yaml"
     ),
@@ -300,12 +306,31 @@ def serve(
         min_amount_ratio=config.paths.min_amount_ratio,
         max_amount_ratio=config.paths.max_amount_ratio,
     )
+    if enable_review_writes and case_sample_version is None:
+        raise typer.BadParameter("case-sample-version is required when review writes are enabled")
+    if enable_review_writes and not trust_review_identity_headers:
+        raise typer.BadParameter(
+            "review writes require trust-review-identity-headers behind a trusted gateway"
+        )
+    if trust_review_identity_headers and not enable_review_writes:
+        raise typer.BadParameter(
+            "trust-review-identity-headers is only valid when review writes are enabled"
+        )
+    if enable_review_writes and review_submission_dir is None:
+        assert case_sample_version is not None
+        review_submission_dir = (
+            config.storage.artifact_dir / "review_submissions" / case_sample_version
+        )
     state = ServiceState(
         config.storage.normalized_dir,
         config.storage.feature_dir,
         config.storage.artifact_dir,
         score_version,
         path_config,
+        case_sample_version=case_sample_version,
+        review_submission_dir=review_submission_dir,
+        review_write_enabled=enable_review_writes,
+        trust_review_identity_headers=trust_review_identity_headers,
     )
     uvicorn.run(create_app(state), host=host, port=port)
 

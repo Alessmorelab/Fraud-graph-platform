@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow.parquet as pq
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,7 +23,7 @@ from fraud_graph.domain import (
     RiskQueuePage,
     RiskScore,
 )
-from fraud_graph.errors import ArtifactNotReadyError
+from fraud_graph.errors import ArtifactNotReadyError, ProductionSafetyError
 from fraud_graph.evidence.associations import rank_associated_accounts
 from fraud_graph.evidence.builder import build_evidence_packet
 from fraud_graph.evidence.render import render_markdown
@@ -32,6 +32,14 @@ from fraud_graph.graph.path_engine import PathSearchConfig, TemporalPathEngine
 from fraud_graph.graph.repository import DuckDbParquetEventRepository
 from fraud_graph.logging import opaque_log_id
 from fraud_graph.modeling.risk_model import ModelMetadata, ScoreManifest
+from fraud_graph.service.review_workflow import (
+    ReviewCaseDetail,
+    ReviewCaseQueue,
+    ReviewDecisionInput,
+    ReviewerPrincipal,
+    ReviewSubmissionReceipt,
+    ReviewWorkflow,
+)
 
 LOGGER = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).with_name("static")
@@ -45,6 +53,11 @@ class ServiceState:
         artifact_root: Path,
         score_version: str,
         path_config: PathSearchConfig,
+        *,
+        case_sample_version: str | None = None,
+        review_submission_dir: Path | None = None,
+        review_write_enabled: bool = False,
+        trust_review_identity_headers: bool = False,
     ) -> None:
         score_dir = artifact_root / "scores" / score_version
         self.score_manifest = ScoreManifest.load(score_dir / "manifest.json")
@@ -74,6 +87,16 @@ class ServiceState:
         )
         repository = DuckDbParquetEventRepository(transaction_glob)
         self.path_engine = TemporalPathEngine(repository, path_config)
+        self.review_workflow = (
+            ReviewWorkflow(
+                artifact_root / "case_samples" / case_sample_version,
+                submission_dir=review_submission_dir,
+                write_enabled=review_write_enabled,
+            )
+            if case_sample_version is not None
+            else None
+        )
+        self.trust_review_identity_headers = trust_review_identity_headers
 
     def _validate_manifest_chain(self) -> None:
         if self.model_metadata.model_version != self.score_manifest.model_version:
@@ -212,6 +235,10 @@ def create_app(state: ServiceState) -> FastAPI:
     def workbench() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/reviews", include_in_schema=False, response_class=FileResponse)
+    def review_workbench() -> FileResponse:
+        return FileResponse(STATIC_DIR / "reviews.html")
+
     @app.get("/v1/operations/summary", response_model=OperationsSummary)
     def operations_summary() -> OperationsSummary:
         return state.operations_summary()
@@ -244,7 +271,17 @@ def create_app(state: ServiceState) -> FastAPI:
                 status="available",
                 endpoint="/v1/accounts/{account_id}/report",
             ),
-            Capability(key="manual_review", status="contract_ready"),
+            Capability(
+                key="manual_review",
+                status="available"
+                if getattr(state, "review_workflow", None) is not None
+                else "contract_ready",
+                endpoint=(
+                    "/v1/reviews/cases"
+                    if getattr(state, "review_workflow", None) is not None
+                    else None
+                ),
+            ),
             Capability(key="case_feedback", status="contract_ready"),
             Capability(key="iam", status="upstream_required"),
             Capability(key="audit_sink", status="upstream_required"),
@@ -310,4 +347,94 @@ def create_app(state: ServiceState) -> FastAPI:
             raise HTTPException(status_code=404, detail="account not found") from exc
         return PlainTextResponse(render_markdown(packet), media_type="text/markdown")
 
+    @app.get("/v1/reviews/cases", response_model=ReviewCaseQueue)
+    def list_review_cases() -> ReviewCaseQueue:
+        workflow = _review_workflow_or_503(state)
+        return workflow.list_cases()
+
+    @app.get("/v1/reviews/cases/{case_id}", response_model=ReviewCaseDetail)
+    def get_review_case(case_id: str) -> ReviewCaseDetail:
+        workflow = _review_workflow_or_503(state)
+        try:
+            return workflow.case_detail(case_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="review case not found") from exc
+
+    @app.get("/v1/reviews/status")
+    def get_review_status() -> dict[str, Any]:
+        workflow = _review_workflow_or_503(state)
+        return workflow.acceptance_status().model_dump(mode="json")
+
+    @app.get(
+        "/v1/reviews/cases/{case_id}/report",
+        response_class=PlainTextResponse,
+    )
+    def get_review_case_report(case_id: str) -> PlainTextResponse:
+        workflow = _review_workflow_or_503(state)
+        try:
+            content = workflow.report_path(case_id).read_text(encoding="utf-8")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="review case not found") from exc
+        return PlainTextResponse(content, media_type="text/markdown")
+
+    @app.get(
+        "/v1/reviews/templates/{template_name}",
+        response_class=FileResponse,
+    )
+    def get_review_template(template_name: str) -> FileResponse:
+        workflow = _review_workflow_or_503(state)
+        try:
+            path = workflow.template_path(template_name)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="review template not found") from exc
+        return FileResponse(path, media_type="application/json", filename=path.name)
+
+    @app.post("/v1/reviews/submissions", response_model=ReviewSubmissionReceipt, status_code=201)
+    def submit_review(
+        decision: ReviewDecisionInput,
+        verified_reviewer_id: str | None = Header(
+            default=None, alias="X-Verified-Reviewer-Id", max_length=256
+        ),
+        verified_reviewer_role: str | None = Header(
+            default=None, alias="X-Verified-Reviewer-Role", max_length=256
+        ),
+    ) -> ReviewSubmissionReceipt:
+        workflow = _review_workflow_or_503(state)
+        if not state.trust_review_identity_headers:
+            raise HTTPException(
+                status_code=503,
+                detail="trusted reviewer identity is not configured",
+            )
+        if not verified_reviewer_id or not verified_reviewer_role:
+            raise HTTPException(status_code=401, detail="verified reviewer identity is required")
+        try:
+            receipt = workflow.submit(
+                decision,
+                ReviewerPrincipal(
+                    reviewer_id=verified_reviewer_id,
+                    reviewer_role=verified_reviewer_role,
+                ),
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="review case not found") from exc
+        except ProductionSafetyError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        LOGGER.info(
+            "manual review accepted",
+            extra={
+                "case_id": decision.case_id,
+                "reviewer_ref": opaque_log_id(verified_reviewer_id),
+                "review_type": decision.review_type,
+                "submission_id": receipt.submission_id,
+            },
+        )
+        return receipt
+
     return app
+
+
+def _review_workflow_or_503(state: ServiceState) -> ReviewWorkflow:
+    workflow = state.review_workflow
+    if workflow is None:
+        raise HTTPException(status_code=503, detail="review case package is not configured")
+    return workflow

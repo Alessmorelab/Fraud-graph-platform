@@ -25,10 +25,20 @@
 - Audit events contain requester, purpose, versions, evidence IDs, and decision outcome.
 - Automated account restriction is prohibited without the bank's approved decision workflow.
 
+### Review workbench deployment boundary
+
+The `/reviews` page and `GET /v1/reviews/*` endpoints can be exposed in read-only mode with a case
+sample package. `POST /v1/reviews/submissions` is intentionally disabled unless the process is
+started with `--enable-review-writes --trust-review-identity-headers` and placed behind the bank's
+trusted IAM/API gateway. The gateway must inject the verified reviewer identity headers; client JSON
+cannot set identity, timestamps, or reviewer kind. Review submissions are immutable JSON records
+whose case ID and packet SHA-256 are validated before an exclusive append. This makes the current
+UI useful for evidence review while preserving the upstream authentication, authorization, and
+audit ownership required for production.
+
 ## Operations gates
 
 - Data freshness and schema-drift alerts are configured.
 - Feature drift, score drift, alert volume, and analyst outcomes are monitored.
 - Incident, rollback, and model-disable runbooks are exercised.
 - Sensitive data never enters external LLM services.
-

@@ -1,30 +1,27 @@
-# Fraud Graph Platform
+# 反诈资金图谱平台
 
-An auditable batch-scoring and temporal-path evidence service for bank anti-fraud operations.
+面向银行反诈运营的、可审计的批量风险评分与时序资金链路证据服务。
 
-The implementation deliberately separates:
+实现中明确区分以下职责：
 
-- immutable source ingestion and data-quality findings;
-- as-of account behavior features;
-- versioned model training and batch scoring;
-- deterministic transaction-path evidence;
-- a read-only operations API.
+- 不可变的源数据接入与数据质量发现；
+- 截至观察时点的账户行为特征；
+- 版本化的模型训练与批量评分；
+- 确定性的交易路径证据；
+- 只读的运营服务 API。
 
-## Safety guarantees
+## 安全保证
 
-- The risk label in the account workbook is used only for cross-file validation. It is never
-  written to the account feature table.
-- Every data, feature, model, and score artifact has an immutable content-derived version.
-- Feature generation uses the half-open interval `[as_of - lookback, as_of)`.
-- Temporal model training is blocked when `label_available_at` is missing.
-- `--allow-static-labels` creates a retrospective model whose metadata explicitly contains
-  `production_eligible=false`.
-- Evidence reports cite source transaction IDs. An account without transactions cannot receive
-  an invented path.
-- Model output is decision support. The service does not perform automatic freezing or other
-  irreversible actions.
+- 账户工作簿中的风险标签仅用于跨文件一致性校验，绝不会写入账户特征表。
+- 每一份数据、特征、模型和评分产物都具有由内容导出的不可变版本。
+- 特征生成严格使用半开时间区间 `[as_of - lookback, as_of)`。
+- 缺少 `label_available_at` 时，系统会阻止时序模型训练。
+- `--allow-static-labels` 仅用于回放，生成的回溯模型元数据会明确写入
+  `production_eligible=false`。
+- 证据报告会引用源交易 ID；没有交易的账户不会被虚构资金路径。
+- 模型输出仅用于辅助决策。服务不会自动执行止付、冻结或其他不可逆处置。
 
-## Quick start
+## 快速开始
 
 ```bash
 python3.12 -m venv .venv
@@ -38,7 +35,7 @@ fraud-graph build-features \
   --data-version <data-version> \
   --config config/default.yaml
 
-# Requires risk_event_at and label_available_at in the label workbook.
+# 标签工作簿必须提供 risk_event_at 和 label_available_at。
 fraud-graph build-temporal-samples \
   --data-version <data-version> \
   --config config/default.yaml
@@ -47,7 +44,7 @@ fraud-graph train-temporal \
   --sample-version <sample-version> \
   --config config/default.yaml
 
-# JSON/Parquet acceptance checks; missing case truth or reviewer cases are hard failures.
+# JSON/Parquet 验收检查；缺少案例真值或人工复核案例时会直接失败。
 fraud-graph evaluate-reports --input reports.json
 fraud-graph evaluate-associations --predictions associations.json --labels labels.parquet
 fraud-graph export-case-samples --score-version <score-version> --limit 5
@@ -57,7 +54,7 @@ fraud-graph evaluate-cases \
   --input var/artifacts/case_samples/<version>/reviewer-2-submission.json \
   --case-sample-dir var/artifacts/case_samples/<version>
 
-# This override is only for replaying the supplied static-label dataset.
+# 此覆盖选项只用于回放行方提供的静态标签数据集。
 fraud-graph train \
   --feature-version <feature-version> \
   --feature-set behavior \
@@ -73,9 +70,9 @@ fraud-graph serve \
   --config config/default.yaml
 ```
 
-API endpoints:
+## API 接口
 
-- `GET /` (anti-fraud operations workbench)
+- `GET /`：反诈运营研判工作台
 - `GET /health/live`
 - `GET /health/ready`
 - `GET /v1/operations/summary`
@@ -86,14 +83,21 @@ API endpoints:
 - `GET /v1/accounts/{account_id}/associations?limit=20`
 - `GET /v1/accounts/{account_id}/report`
 - `GET /v1/capabilities`
+- `GET /reviews`：案例包已配置时提供案例复核工作台
+- `GET /v1/reviews/cases`
+- `GET /v1/reviews/cases/{case_id}`
+- `GET /v1/reviews/status`
+- `GET /v1/reviews/cases/{case_id}/report`
+- `GET /v1/reviews/templates/{template_name}`
+- `POST /v1/reviews/submissions`：仅在可信 IAM 后显式启用时可写入
 
-The workbench is served by FastAPI from package-owned static assets, so the same Python process and
-Docker image provide the UI and API. It includes a paged risk queue, searchable account selection,
-an interactive directed transaction graph, Top-20 associations, path evidence, model eligibility
-warnings, and report access. Capability metadata reserves the integration boundaries for manual
-review, case feedback, IAM, and audit sinks without presenting unavailable functions as active.
+工作台由 FastAPI 直接提供包内静态资源，因此同一个 Python 进程和 Docker 镜像同时承载 UI 与 API。页面包括可分页的风险账户队列、账户检索、交互式有向资金图谱、Top-20 关联账户、资金链路证据、模型上线资格告警和报告入口。能力元数据为人工复核、案件反馈、IAM 和审计汇聚预留了集成边界，不会把尚未接通的能力伪装为可用功能。
 
-## Artifact layout
+视觉系统采用克制的冰白、海军蓝和蓝色操作态，参考公开 WIDTH 产品语言的层级感与信息密度，但为反诈运营场景独立实现，未复用任何 WIDTH 品牌资产。
+
+如需启用只读案例复核页，在 `serve` 命令中增加 `--case-sample-version <version>`。默认关闭复核写入。生产部署只有同时启用 `--enable-review-writes` 和 `--trust-review-identity-headers`，并置于银行 IAM/API 网关之后时，才能开启写入；网关必须注入 `X-Verified-Reviewer-Id` 与 `X-Verified-Reviewer-Role`，服务不会从 JSON 请求体接受复核人身份。提交记录为追加式写入，与不可变证据包哈希绑定，并拒绝重复提交或不符合阶段的复核。
+
+## 产物目录
 
 ```text
 var/
@@ -112,23 +116,10 @@ var/
     scores/<score_version>/
 ```
 
-The temporal model artifact contains one prediction table for train, validation, and test anchors,
-unified rule/model metrics, subgroup metrics, and explicit leakage fields. It is still marked
-`production_eligible=false` until model approval, calibration, shadow running, and rollback review
-are completed. Association and report acceptance helpers live in
-`fraud_graph.evidence.evaluation`. Case exports include an immutable packet hash and two human
-review slots per case. Task 3 acceptance requires at least five resolved cases, two independent
-human reviewers per case, and a 70% strict case pass rate; automated prechecks never count as human
-reviews. Reviewer disagreements require a separate adjudicator. Task 4 acceptance verifies both
-the structured evidence and an exact deterministic rendering of every delivered Markdown report.
-Missing case truth or reviewer-labelled cases are blocked instead of manufacturing hit rates.
+时序模型产物包含训练、验证和测试锚点的预测表，统一的规则/模型指标、子群指标，以及明确的泄露检查字段。在模型审批、校准、影子运行和回滚评审完成前，产物仍会标记为 `production_eligible=false`。关联账户与报告的验收工具位于 `fraud_graph.evidence.evaluation`。案例导出包含不可变证据包哈希，每个案例配置两个独立人工复核席位。
 
-With the supplied dataset, Tasks 1 and 2 are static retrospective experiments only. Their artifacts
-must remain `production_eligible=false`; no chronological model claim is permitted until real label
-availability times are supplied.
+任务 3 的验收要求至少 5 个已解决案例、每个案例由 2 名独立人工复核人员确认，以及 70% 的严格案例通过率；自动预检查绝不能计入人工复核。复核意见不一致时必须由独立仲裁人处理。任务 4 的验收同时验证结构化证据和每份 Markdown 报告的精确确定性渲染结果。缺少案例真值或人工标注的复核案例时，系统会阻断验收，而不会伪造命中率。
 
-The repository contains a production-oriented vertical slice, not a claim that the supplied
-dataset is sufficient for production model approval. See `docs/architecture.md` and
-`docs/production-readiness.md` for the required upstream fields and deployment controls. The
-Chinese enterprise design and GitHub component assessment are in
-`docs/enterprise-solution.zh-CN.md` and `docs/github-reference.zh-CN.md`.
+基于当前提供的数据集，任务 1 和任务 2 仅能进行静态回溯实验，其产物必须持续标记为 `production_eligible=false`；在补齐真实的标签可得时间之前，不得宣称具备时序模型能力。
+
+本仓库交付的是面向生产的端到端最小切片，并不声称当前数据集足以完成生产模型审批。所需上游字段与部署控制请参阅 `docs/architecture.md` 和 `docs/production-readiness.md`。中文企业方案与 GitHub 组件调研见 `docs/enterprise-solution.zh-CN.md` 和 `docs/github-reference.zh-CN.md`。
