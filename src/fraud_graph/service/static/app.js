@@ -272,7 +272,7 @@ function renderGraph() {
     const startY = from.y + (dy / length) * 28;
     const endX = to.x - (dx / length) * 31;
     const endY = to.y - (dy / length) * 31;
-    const color = edge.direction === "incoming" ? "#26867d" : "#b94b44";
+    const color = edge.direction === "incoming" ? "#2563eb" : "#b4534b";
     const marker = edge.direction === "incoming" ? "arrow-in" : "arrow-out";
     return `
       <g class="edge-group" data-transaction="${escapeHtml(edge.transaction_id)}">
@@ -284,7 +284,7 @@ function renderGraph() {
     const position = positions.get(node.id);
     const incoming = node.directions.has("incoming");
     const outgoing = node.directions.has("outgoing");
-    const fill = node.root ? "#b94b44" : incoming && outgoing ? "#3d6f91" : incoming ? "#26867d" : "#d68a4c";
+    const fill = node.root ? "#b4534b" : incoming && outgoing ? "#475569" : incoming ? "#2563eb" : "#c47a39";
     const stroke = node.root ? "#7e302b" : "#ffffff";
     const radius = node.root ? 31 : Math.max(19, 25 - node.minHop * 2);
     return `

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>反诈案例复核</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-block">
+        <span class="brand-mark" aria-hidden="true">审</span>
+        <div>
+          <h1>反诈案例复核</h1>
+          <p>证据一致性与链路解释验收</p>
+        </div>
+      </div>
+      <nav class="product-nav" aria-label="产品导航">
+        <a href="/">风险工作台</a>
+        <a class="active" href="/reviews">案例复核</a>
+        <a href="/docs" target="_blank">API 合同</a>
+      </nav>
+      <div class="header-status">
+        <span class="guardrail">仅辅助人工研判</span>
+        <a class="icon-button api-link" href="/docs" target="_blank" title="打开 API 文档" aria-label="打开 API 文档">↗</a>
+      </div>
+    </header>
+
+    <section class="metrics-band review-metrics" aria-label="复核摘要">
+      <div class="metric metric-version">
+        <span>案例包版本</span>
+        <strong id="review-version">--</strong>
+      </div>
+      <div class="metric">
+        <span>人工复核</span>
+        <strong id="human-review-count">--</strong>
+      </div>
+      <div class="metric">
+        <span>已解决案例</span>
+        <strong id="resolved-case-count">--</strong>
+      </div>
+      <div class="metric">
+        <span>严格通过率</span>
+        <strong id="case-pass-rate">--</strong>
+      </div>
+      <div class="metric">
+        <span>提交通道</span>
+        <strong id="write-status">--</strong>
+      </div>
+    </section>
+
+    <main class="review-workspace">
+      <aside class="review-queue" aria-label="待复核案例">
+        <div class="pane-heading">
+          <div>
+            <h2>验收案例</h2>
+            <span id="review-case-total">--</span>
+          </div>
+          <button class="icon-button" id="review-refresh" type="button" title="刷新" aria-label="刷新">↻</button>
+        </div>
+        <div class="review-case-head" aria-hidden="true">
+          <span>案例 / 账户</span><span>状态</span>
+        </div>
+        <div id="review-case-list" class="review-case-list" aria-live="polite"></div>
+      </aside>
+
+      <section class="review-evidence" aria-label="案例证据">
+        <div class="review-evidence-head">
+          <div>
+            <span>当前案例</span>
+            <h2 id="current-case">--</h2>
+          </div>
+          <div class="review-case-meta">
+            <span id="current-account">账户 --</span>
+            <span id="current-grade" class="risk-badge">证据 --</span>
+          </div>
+        </div>
+        <div id="review-evidence-body" class="review-evidence-body">
+          <div class="review-empty">正在读取案例包</div>
+        </div>
+      </section>
+
+      <aside class="review-control" aria-label="复核控制">
+        <section class="review-status-section">
+          <p class="section-label">复核状态</p>
+          <div id="selected-case-status" class="selected-case-status">--</div>
+          <dl class="review-status-list">
+            <div><dt>主审人数</dt><dd id="primary-reviewers">--</dd></div>
+            <div><dt>证据哈希</dt><dd id="packet-hash">--</dd></div>
+          </dl>
+        </section>
+        <section class="review-downloads">
+          <p class="section-label">独立复核模板</p>
+          <a href="/v1/reviews/templates/primary-reviewer-1.json" download>↓ 主审模板 1</a>
+          <a href="/v1/reviews/templates/primary-reviewer-2.json" download>↓ 主审模板 2</a>
+          <a href="/v1/reviews/templates/adjudicator.json" download>↓ 仲裁模板</a>
+        </section>
+        <section class="review-guardrails">
+          <p class="section-label">验收边界</p>
+          <p>人工签名和结论不得由模型生成。</p>
+          <p>结果不授权自动止付、冻结或客户处置。</p>
+        </section>
+        <a id="case-report-link" class="command-button" href="#" target="_blank">查看案例报告</a>
+      </aside>
+    </main>
+
+    <div id="review-toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/assets/reviews.js" defer></script>
+  </body>
+</html>
