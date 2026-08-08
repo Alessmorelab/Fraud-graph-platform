@@ -1,0 +1,70 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "fraud-graph-platform"
+version = "0.1.0"
+description = "Auditable account-risk scoring and temporal transaction-path evidence service"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "duckdb>=1.2,<2",
+  "fastapi>=0.115,<1",
+  "joblib>=1.4,<2",
+  "numpy>=1.26,<3",
+  "openpyxl>=3.1,<4",
+  "pandas>=2.2,<3",
+  "pyarrow>=18,<22",
+  "pydantic>=2.10,<3",
+  "PyYAML>=6.0,<7",
+  "scikit-learn>=1.6,<2",
+  "typer>=0.15,<1",
+  "uvicorn>=0.34,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.14,<2",
+  "pytest>=8.3,<9",
+  "pytest-cov>=6,<7",
+  "ruff>=0.9,<1",
+  "types-PyYAML>=6.0,<7",
+]
+
+[project.scripts]
+fraud-graph = "fraud_graph.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/fraud_graph"]
+
+[tool.pytest.ini_options]
+addopts = "-q --strict-markers --disable-warnings"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["fraud_graph"]
+
+[[tool.mypy.overrides]]
+module = [
+  "duckdb",
+  "joblib",
+  "openpyxl",
+  "pyarrow",
+  "pyarrow.*",
+  "pandas",
+  "pandas.*",
+  "sklearn",
+  "sklearn.*",
+]
+ignore_missing_imports = true

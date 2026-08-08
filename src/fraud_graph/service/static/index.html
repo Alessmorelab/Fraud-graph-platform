@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>反诈资金图谱</title>
+    <link rel="stylesheet" href="/assets/styles.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-block">
+        <span class="brand-mark" aria-hidden="true">资</span>
+        <div>
+          <h1>反诈资金图谱</h1>
+          <p>风险账户研判工作台</p>
+        </div>
+      </div>
+      <div class="header-status">
+        <span class="mode-chip"><span class="status-dot"></span>静态回溯实验</span>
+        <span class="guardrail">禁止自动处置</span>
+        <a class="icon-button api-link" href="/docs" target="_blank" title="打开 API 文档" aria-label="打开 API 文档">API</a>
+      </div>
+    </header>
+
+    <section class="metrics-band" aria-label="运行摘要">
+      <div class="metric">
+        <span>已评分账户</span>
+        <strong id="scored-count">--</strong>
+      </div>
+      <div class="metric">
+        <span>活跃账户</span>
+        <strong id="active-count">--</strong>
+      </div>
+      <div class="metric">
+        <span>复核容量</span>
+        <strong id="capacity-count">--</strong>
+      </div>
+      <div class="metric metric-version">
+        <span>数据 / 模型版本</span>
+        <strong id="version-label">--</strong>
+      </div>
+      <div class="metric metric-time">
+        <span>特征截止时间</span>
+        <strong id="feature-time">--</strong>
+      </div>
+    </section>
+
+    <main class="workspace">
+      <aside class="queue-pane" aria-label="风险账户队列">
+        <div class="pane-heading">
+          <div>
+            <h2>风险账户</h2>
+            <span id="queue-total">--</span>
+          </div>
+          <button class="icon-button" id="refresh-button" type="button" title="刷新队列" aria-label="刷新队列">↻</button>
+        </div>
+        <label class="search-box">
+          <span aria-hidden="true">⌕</span>
+          <input id="account-search" type="search" placeholder="检索账户 ID" autocomplete="off" />
+        </label>
+        <label class="switch-row">
+          <span>仅显示有交易账户</span>
+          <input id="active-only" type="checkbox" checked />
+          <span class="switch" aria-hidden="true"></span>
+        </label>
+        <div class="queue-column-head" aria-hidden="true">
+          <span>账户</span><span>风险</span><span>排序</span>
+        </div>
+        <div id="account-list" class="account-list" aria-live="polite"></div>
+        <div class="queue-footer">
+          <span id="queue-range">--</span>
+          <div class="pager">
+            <button class="icon-button" id="previous-page" type="button" title="上一页" aria-label="上一页">‹</button>
+            <button class="icon-button" id="next-page" type="button" title="下一页" aria-label="下一页">›</button>
+          </div>
+        </div>
+      </aside>
+
+      <section class="graph-pane" aria-label="资金关系图谱">
+        <div class="graph-toolbar">
+          <div class="account-title">
+            <span>当前账户</span>
+            <strong id="selected-account">--</strong>
+            <span id="risk-badge" class="risk-badge">--</span>
+          </div>
+          <div class="graph-actions">
+            <div class="segmented" role="group" aria-label="链路方向">
+              <button type="button" data-direction="all" class="active">全部</button>
+              <button type="button" data-direction="incoming">流入</button>
+              <button type="button" data-direction="outgoing">流出</button>
+            </div>
+            <button class="icon-button" id="zoom-out" type="button" title="缩小" aria-label="缩小">−</button>
+            <button class="icon-button" id="fit-graph" type="button" title="适应画布" aria-label="适应画布">⌗</button>
+            <button class="icon-button" id="zoom-in" type="button" title="放大" aria-label="放大">+</button>
+          </div>
+        </div>
+        <div id="graph-stage" class="graph-stage">
+          <svg id="fund-graph" viewBox="0 0 1000 620" role="img" aria-label="账户资金关系图">
+            <defs>
+              <marker id="arrow-in" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                <path d="M0,0 L8,4 L0,8 Z" fill="#26867d"></path>
+              </marker>
+              <marker id="arrow-out" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                <path d="M0,0 L8,4 L0,8 Z" fill="#b94b44"></path>
+              </marker>
+            </defs>
+            <g id="graph-viewport"></g>
+          </svg>
+          <div id="graph-empty" class="graph-empty" hidden>该账户在当前窗口内没有可展示的交易链路</div>
+          <div class="graph-legend" aria-hidden="true">
+            <span><i class="legend-root"></i>当前账户</span>
+            <span><i class="legend-in"></i>资金流入</span>
+            <span><i class="legend-out"></i>资金流出</span>
+          </div>
+        </div>
+        <div id="transaction-inspector" class="transaction-inspector">
+          <span>选择一条交易边查看证据</span>
+        </div>
+      </section>
+
+      <aside class="detail-pane" aria-label="研判证据">
+        <div class="tabs" role="tablist">
+          <button class="active" role="tab" data-tab="evidence" aria-selected="true">证据</button>
+          <button role="tab" data-tab="associations" aria-selected="false">关联账户</button>
+          <button role="tab" data-tab="paths" aria-selected="false">链路</button>
+        </div>
+        <div id="evidence-panel" class="tab-panel active" role="tabpanel"></div>
+        <div id="associations-panel" class="tab-panel" role="tabpanel"></div>
+        <div id="paths-panel" class="tab-panel" role="tabpanel"></div>
+        <div class="detail-actions">
+          <a id="report-link" class="command-button" href="#" target="_blank">查看研判报告</a>
+        </div>
+      </aside>
+    </main>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/assets/app.js" defer></script>
+  </body>
+</html>
