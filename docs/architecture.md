@@ -6,6 +6,7 @@
 Source extract
   -> contract validation
   -> immutable Parquet lake
+  -> rolling directed-graph snapshots
   -> as-of batch feature job
   -> governed training job
   -> model registry adapter

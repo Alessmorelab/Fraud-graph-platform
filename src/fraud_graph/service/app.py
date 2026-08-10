@@ -40,6 +40,7 @@ from fraud_graph.service.review_workflow import (
     ReviewSubmissionReceipt,
     ReviewWorkflow,
 )
+from fraud_graph.service.snapshot_view import GraphSnapshotView
 
 LOGGER = logging.getLogger(__name__)
 STATIC_DIR = Path(__file__).with_name("static")
@@ -97,6 +98,10 @@ class ServiceState:
             else None
         )
         self.trust_review_identity_headers = trust_review_identity_headers
+        self.graph_snapshot_view = GraphSnapshotView.discover(
+            artifact_root / "graph_snapshots",
+            self.score_manifest.data_version,
+        )
 
     def _validate_manifest_chain(self) -> None:
         if self.model_metadata.model_version != self.score_manifest.model_version:
@@ -199,6 +204,29 @@ class ServiceState:
             ),
         )
 
+    def graph_snapshot_list(self) -> dict[str, Any]:
+        if self.graph_snapshot_view is None:
+            raise ArtifactNotReadyError("graph snapshot artifact is not configured")
+        return self.graph_snapshot_view.list_payload()
+
+    def graph_snapshot_detail(
+        self,
+        snapshot_id: str,
+        node_limit: int = 70,
+        edge_limit: int = 150,
+    ) -> dict[str, Any]:
+        if self.graph_snapshot_view is None:
+            raise ArtifactNotReadyError("graph snapshot artifact is not configured")
+        return self.graph_snapshot_view.detail_payload(
+            snapshot_id,
+            node_limit=node_limit,
+            edge_limit=edge_limit,
+        )
+
+    @property
+    def graph_snapshots_available(self) -> bool:
+        return self.graph_snapshot_view is not None
+
 
 def create_app(state: ServiceState) -> FastAPI:
     app = FastAPI(
@@ -238,6 +266,10 @@ def create_app(state: ServiceState) -> FastAPI:
     @app.get("/reviews", include_in_schema=False, response_class=FileResponse)
     def review_workbench() -> FileResponse:
         return FileResponse(STATIC_DIR / "reviews.html")
+
+    @app.get("/snapshots", include_in_schema=False, response_class=FileResponse)
+    def snapshot_workbench() -> FileResponse:
+        return FileResponse(STATIC_DIR / "snapshots.html")
 
     @app.get("/v1/operations/summary", response_model=OperationsSummary)
     def operations_summary() -> OperationsSummary:
@@ -282,10 +314,44 @@ def create_app(state: ServiceState) -> FastAPI:
                     else None
                 ),
             ),
+            Capability(
+                key="graph_snapshots",
+                status=(
+                    "available"
+                    if getattr(state, "graph_snapshots_available", False)
+                    else "contract_ready"
+                ),
+                endpoint="/v1/graph-snapshots",
+            ),
             Capability(key="case_feedback", status="contract_ready"),
             Capability(key="iam", status="upstream_required"),
             Capability(key="audit_sink", status="upstream_required"),
         ]
+
+    @app.get("/v1/graph-snapshots")
+    def list_graph_snapshots() -> dict[str, Any]:
+        try:
+            return state.graph_snapshot_list()
+        except ArtifactNotReadyError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.get("/v1/graph-snapshots/{snapshot_id}")
+    async def get_graph_snapshot(
+        snapshot_id: str,
+        node_limit: int = Query(default=70, ge=20, le=100),
+        edge_limit: int = Query(default=150, ge=20, le=300),
+    ) -> dict[str, Any]:
+        try:
+            return await run_in_threadpool(
+                state.graph_snapshot_detail,
+                snapshot_id,
+                node_limit,
+                edge_limit,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="graph snapshot not found") from exc
+        except ArtifactNotReadyError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/v1/accounts/{account_id}/risk", response_model=RiskScore)
     def get_risk(account_id: str) -> RiskScore:

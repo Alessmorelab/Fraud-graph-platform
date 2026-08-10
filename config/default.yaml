@@ -12,6 +12,10 @@ ingestion:
   batch_size: 50000
 features:
   lookback_days: 184
+snapshots:
+  observation_days: 28
+  anchor_step_days: 7
+  include_events: true
 temporal:
   observation_days: 28
   prediction_days: 7

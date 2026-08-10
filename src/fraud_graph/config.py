@@ -28,6 +28,18 @@ class FeatureConfig(BaseModel):
     lookback_days: int = Field(default=184, ge=1, le=3_650)
 
 
+class SnapshotConfig(BaseModel):
+    observation_days: int = Field(default=28, ge=1, le=3_650)
+    anchor_step_days: int = Field(default=7, ge=1, le=365)
+    include_events: bool = True
+
+    @model_validator(mode="after")
+    def validate_window_coverage(self) -> SnapshotConfig:
+        if self.anchor_step_days > self.observation_days:
+            raise ValueError("anchor_step_days must not exceed observation_days")
+        return self
+
+
 class TemporalConfig(BaseModel):
     observation_days: int = Field(default=28, ge=1, le=3_650)
     prediction_days: int = Field(default=7, ge=1, le=365)
@@ -71,6 +83,7 @@ class AppConfig(BaseModel):
     storage: StorageConfig
     ingestion: IngestionConfig = Field(default_factory=IngestionConfig)
     features: FeatureConfig = Field(default_factory=FeatureConfig)
+    snapshots: SnapshotConfig = Field(default_factory=SnapshotConfig)
     temporal: TemporalConfig = Field(default_factory=TemporalConfig)
     model: ModelConfig = Field(default_factory=ModelConfig)
     paths: PathConfig = Field(default_factory=PathConfig)

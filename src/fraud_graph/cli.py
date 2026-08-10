@@ -24,6 +24,7 @@ from fraud_graph.evidence.evaluation import (
 )
 from fraud_graph.features.builder import build_account_features
 from fraud_graph.graph.path_engine import PathSearchConfig
+from fraud_graph.graph.snapshots import GraphSnapshotBuildConfig, build_graph_snapshots
 from fraud_graph.logging import configure_logging
 from fraud_graph.modeling.risk_model import score_accounts, train_risk_model
 from fraud_graph.service.app import ServiceState, create_app
@@ -66,6 +67,33 @@ def build_features_command(
         data_version,
         as_of=as_of,
         lookback_days=lookback_days or config.features.lookback_days,
+    )
+    typer.echo(manifest.model_dump_json(indent=2))
+
+
+@app.command("build-graph-snapshots")
+def build_graph_snapshots_command(
+    data_version: Annotated[str, typer.Option()],
+    observation_days: Annotated[int | None, typer.Option(min=1)] = None,
+    anchor_step_days: Annotated[int | None, typer.Option(min=1)] = None,
+    include_events: Annotated[bool | None, typer.Option()] = None,
+    config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)] = Path(
+        "config/default.yaml"
+    ),
+) -> None:
+    config = _config(config_path)
+    snapshot_config = GraphSnapshotBuildConfig(
+        observation_days=observation_days or config.snapshots.observation_days,
+        anchor_step_days=anchor_step_days or config.snapshots.anchor_step_days,
+        include_events=(
+            config.snapshots.include_events if include_events is None else include_events
+        ),
+    )
+    manifest = build_graph_snapshots(
+        config.storage.normalized_dir,
+        config.storage.artifact_dir / "graph_snapshots",
+        data_version,
+        snapshot_config,
     )
     typer.echo(manifest.model_dump_json(indent=2))
 

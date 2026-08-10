@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>动态图快照 · 反诈资金图谱</title>
+    <link rel="stylesheet" href="/assets/styles.css?v=snapshot-workbench-2" />
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-block">
+        <span class="brand-mark" aria-hidden="true">时</span>
+        <div>
+          <h1>动态图快照</h1>
+          <p>滚动观察资金网络的结构变化</p>
+        </div>
+      </div>
+      <nav class="product-nav" aria-label="产品导航">
+        <a href="/">风险工作台</a>
+        <a class="active" href="/snapshots">动态图快照</a>
+        <a href="/reviews">案例复核</a>
+        <a href="/docs" target="_blank">API 合同</a>
+      </nav>
+      <div class="header-status">
+        <span class="mode-chip"><span class="status-dot"></span>28 天滚动窗口</span>
+        <span class="guardrail">静态标签仅用于回溯</span>
+        <a class="icon-button api-link" href="/docs" target="_blank" title="打开 API 文档" aria-label="打开 API 文档">↗</a>
+      </div>
+    </header>
+
+    <section class="metrics-band snapshot-metrics" aria-label="当前快照摘要">
+      <div class="metric">
+        <span>观察时点</span>
+        <strong id="snapshot-position">--</strong>
+      </div>
+      <div class="metric">
+        <span>活跃账户</span>
+        <strong id="snapshot-active-nodes">--</strong>
+      </div>
+      <div class="metric">
+        <span>有向资金边</span>
+        <strong id="snapshot-edge-count">--</strong>
+      </div>
+      <div class="metric">
+        <span>窗口内交易</span>
+        <strong id="snapshot-event-count">--</strong>
+      </div>
+      <div class="metric metric-snapshot-amount">
+        <span>交易总额</span>
+        <strong id="snapshot-total-amount">--</strong>
+      </div>
+    </section>
+
+    <main class="snapshot-page">
+      <section class="snapshot-timeline" aria-label="快照时间控制">
+        <div class="snapshot-playback">
+          <button class="icon-button" id="snapshot-previous" type="button" title="上一个观察时点" aria-label="上一个观察时点">‹</button>
+          <button class="icon-button snapshot-play" id="snapshot-play" type="button" title="播放快照" aria-label="播放快照">▶</button>
+          <button class="icon-button" id="snapshot-next" type="button" title="下一个观察时点" aria-label="下一个观察时点">›</button>
+        </div>
+        <div class="snapshot-time-copy">
+          <strong id="snapshot-anchor">正在读取快照</strong>
+          <span id="snapshot-window">--</span>
+        </div>
+        <label class="snapshot-slider-wrap">
+          <span class="sr-only">选择观察时点</span>
+          <input id="snapshot-slider" type="range" min="0" max="0" value="0" step="1" />
+          <span class="snapshot-slider-scale" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>
+        </label>
+        <select id="snapshot-picker" class="snapshot-picker" aria-label="选择快照"></select>
+      </section>
+
+      <div class="snapshot-workspace">
+        <section class="snapshot-graph-pane" aria-label="快照资金网络">
+          <div class="graph-toolbar snapshot-graph-toolbar">
+            <div class="account-title">
+              <span>画布范围</span>
+              <strong>高活跃资金子图</strong>
+              <span id="snapshot-sample-badge" class="risk-badge snapshot-sample-badge">--</span>
+            </div>
+            <div class="graph-actions">
+              <button class="icon-button" id="snapshot-zoom-out" type="button" title="缩小" aria-label="缩小">−</button>
+              <button class="icon-button" id="snapshot-fit" type="button" title="适应画布" aria-label="适应画布">⌗</button>
+              <button class="icon-button" id="snapshot-zoom-in" type="button" title="放大" aria-label="放大">+</button>
+            </div>
+          </div>
+          <div id="snapshot-graph-stage" class="graph-stage snapshot-graph-stage">
+            <svg id="snapshot-graph" viewBox="0 0 1100 660" role="img" aria-label="随时间演化的有向资金图样本">
+              <defs>
+                <marker id="snapshot-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#64748b"></path>
+                </marker>
+                <marker id="snapshot-arrow-selected" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+                  <path d="M0,0 L8,4 L0,8 Z" fill="#b4534b"></path>
+                </marker>
+              </defs>
+              <g id="snapshot-graph-viewport"></g>
+            </svg>
+            <div id="snapshot-graph-empty" class="graph-empty" hidden>当前快照没有可展示的资金边</div>
+            <div class="graph-legend snapshot-legend" aria-label="图例">
+              <span><i class="snapshot-legend-suspect"></i>涉诈账户</span>
+              <span><i class="snapshot-legend-victim"></i>受害账户</span>
+              <span><i class="snapshot-legend-other"></i>其他账户</span>
+              <span class="snapshot-edge-legend"><i></i>线宽表示金额</span>
+            </div>
+          </div>
+          <div id="snapshot-inspector" class="transaction-inspector snapshot-inspector">
+            <span>选择节点或资金边查看当前窗口内的聚合信息</span>
+          </div>
+        </section>
+
+        <aside class="snapshot-detail-pane" aria-label="快照结构与趋势">
+          <section class="snapshot-detail-section">
+            <p class="section-label">观察窗口</p>
+            <dl class="snapshot-facts">
+              <div><dt>起始时间</dt><dd id="snapshot-window-start">--</dd></div>
+              <div><dt>截止时间</dt><dd id="snapshot-window-end">--</dd></div>
+              <div><dt>窗口长度</dt><dd id="snapshot-window-days">--</dd></div>
+              <div><dt>观察步长</dt><dd id="snapshot-step-days">--</dd></div>
+            </dl>
+          </section>
+          <section class="snapshot-detail-section">
+            <p class="section-label">图结构</p>
+            <dl class="snapshot-facts snapshot-structure-facts">
+              <div><dt>弱连通分量</dt><dd id="snapshot-components">--</dd></div>
+              <div><dt>最大分量</dt><dd id="snapshot-largest-component">--</dd></div>
+              <div><dt>活跃涉诈账户</dt><dd id="snapshot-suspects">--</dd></div>
+              <div><dt>活跃受害账户</dt><dd id="snapshot-victims">--</dd></div>
+            </dl>
+          </section>
+          <section class="snapshot-detail-section snapshot-trends">
+            <p class="section-label">24 个观察时点趋势</p>
+            <div class="snapshot-trend-row">
+              <div><span>活跃账户</span><strong id="trend-node-value">--</strong></div>
+              <svg id="trend-nodes" viewBox="0 0 280 54" role="img" aria-label="活跃账户趋势"></svg>
+            </div>
+            <div class="snapshot-trend-row">
+              <div><span>交易笔数</span><strong id="trend-event-value">--</strong></div>
+              <svg id="trend-events" viewBox="0 0 280 54" role="img" aria-label="交易笔数趋势"></svg>
+            </div>
+            <div class="snapshot-trend-row">
+              <div><span>交易总额</span><strong id="trend-amount-value">--</strong></div>
+              <svg id="trend-amount" viewBox="0 0 280 54" role="img" aria-label="交易总额趋势"></svg>
+            </div>
+          </section>
+          <section class="snapshot-detail-section snapshot-boundary">
+            <p class="section-label">样本边界</p>
+            <p>画布仅呈现高活跃、高金额账户子图；上方指标来自完整快照。</p>
+            <p>涉诈与受害标签缺少发生时间，只能用于赛后回溯解释，不能作为时点特征。</p>
+          </section>
+        </aside>
+      </div>
+    </main>
+
+    <div id="snapshot-toast" class="toast" role="status" aria-live="polite"></div>
+    <script src="/assets/snapshots.js?v=snapshot-workbench-2" defer></script>
+  </body>
+</html>

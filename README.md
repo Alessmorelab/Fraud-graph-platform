@@ -31,6 +31,11 @@ fraud-graph ingest \
   --source-dir /path/to/source \
   --config config/default.yaml
 
+# 构建 28 天观察窗口、7 天步长的滚动有向资金图快照。
+fraud-graph build-graph-snapshots \
+  --data-version <data-version> \
+  --config config/default.yaml
+
 fraud-graph build-features \
   --data-version <data-version> \
   --config config/default.yaml
@@ -73,10 +78,13 @@ fraud-graph serve \
 ## API 接口
 
 - `GET /`：反诈运营研判工作台
+- `GET /snapshots`：28 天滚动窗口的动态图快照工作台
 - `GET /health/live`
 - `GET /health/ready`
 - `GET /v1/operations/summary`
 - `GET /v1/accounts`
+- `GET /v1/graph-snapshots`：列出与当前数据版本一致的观察时点
+- `GET /v1/graph-snapshots/{snapshot_id}`：返回快照统计与受控规模的高活跃资金子图
 - `GET /v1/accounts/{account_id}/workspace`
 - `GET /v1/accounts/{account_id}/risk`
 - `GET /v1/accounts/{account_id}/evidence`
@@ -91,7 +99,7 @@ fraud-graph serve \
 - `GET /v1/reviews/templates/{template_name}`
 - `POST /v1/reviews/submissions`：仅在可信 IAM 后显式启用时可写入
 
-工作台由 FastAPI 直接提供包内静态资源，因此同一个 Python 进程和 Docker 镜像同时承载 UI 与 API。页面包括可分页的风险账户队列、账户检索、交互式有向资金图谱、Top-20 关联账户、资金链路证据、模型上线资格告警和报告入口。能力元数据为人工复核、案件反馈、IAM 和审计汇聚预留了集成边界，不会把尚未接通的能力伪装为可用功能。
+工作台由 FastAPI 直接提供包内静态资源，因此同一个 Python 进程和 Docker 镜像同时承载 UI 与 API。页面包括可分页的风险账户队列、账户检索、交互式账户研判图、动态图快照时间轴、Top-20 关联账户、资金链路证据、模型上线资格告警和报告入口。动态图快照页同时展示完整快照指标与高活跃、高金额子图，避免将浏览器抽样画布误认为全量资金网络。能力元数据为人工复核、案件反馈、IAM 和审计汇聚预留了集成边界，不会把尚未接通的能力伪装为可用功能。
 
 视觉系统采用克制的冰白、海军蓝和蓝色操作态，参考公开 WIDTH 产品语言的层级感与信息密度，但为反诈运营场景独立实现，未复用任何 WIDTH 品牌资产。
 
@@ -110,11 +118,27 @@ var/
     manifest.json
     account_features.parquet
   artifacts/
+    graph_snapshots/<snapshot_set_version>/
+      manifest.json
+      summary.md
+      accounts.parquet
+      labels.parquet
+      snapshot_stats.parquet
+      snapshots/<snapshot_id>/
+        manifest.json
+        nodes.parquet
+        edges.parquet
+        events.parquet
     models/<model_version>/
     temporal_samples/<sample_version>/
     temporal_models/<model_version>/
     scores/<score_version>/
 ```
+
+动态图快照使用半开窗口 `[anchor_at - observation_days, anchor_at)`。节点表不包含
+风险标签，静态标签单独保存在快照集根目录，避免被误作模型输入。默认保留窗口内源交易事件，
+并对节点交易计数、聚合边计数、金额、账户覆盖和未来交易泄露逐快照对账。完整口径与产物说明见
+`docs/task-1-snapshots.zh-CN.md`。
 
 时序模型产物包含训练、验证和测试锚点的预测表，统一的规则/模型指标、子群指标，以及明确的泄露检查字段。在模型审批、校准、影子运行和回滚评审完成前，产物仍会标记为 `production_eligible=false`。关联账户与报告的验收工具位于 `fraud_graph.evidence.evaluation`。案例导出包含不可变证据包哈希，每个案例配置两个独立人工复核席位。
 
