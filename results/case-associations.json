@@ -1,0 +1,859 @@
+{
+  "summary": {
+    "total_cases": 5,
+    "total_associated_accounts": 16,
+    "average_associations_per_case": 3.2,
+    "cases_with_multi_hop": 2,
+    "total_suspicious_paths": 34
+  },
+  "cases": [
+    {
+      "case_id": "case-01",
+      "root_account": "7284",
+      "risk_score": 0.9996912982284534,
+      "risk_rank": 1,
+      "grade": "B",
+      "associated_accounts": [
+        "7990",
+        "837"
+      ],
+      "association_count": 2,
+      "key_facts": {
+        "transaction_count": 4.0,
+        "counterparty_count": 4.0,
+        "same_day_turnover_ratio": 0.5,
+        "has_multi_hop_paths": false
+      },
+      "suspicious_paths": [
+        {
+          "path_id": "path_9fc0d8278b8a6344",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000789556",
+              "from": "7284",
+              "to": "837",
+              "amount": "0.01",
+              "time": "2025-09-02T07:45:50Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_b872b6e3754ad5a2",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000477224",
+              "from": "7284",
+              "to": "7990",
+              "amount": "0.01",
+              "time": "2025-09-02T07:45:50Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_28c97c1286f2ab09",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000272437",
+              "from": "7990",
+              "to": "7284",
+              "amount": "0.02",
+              "time": "2025-09-02T07:47:30Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_e1e32b7bf27f554b",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000891218",
+              "from": "837",
+              "to": "7284",
+              "amount": "0.02",
+              "time": "2025-09-02T07:47:30Z",
+              "gap_seconds": null
+            }
+          ]
+        }
+      ],
+      "path_count": 4,
+      "high_score_paths": 0
+    },
+    {
+      "case_id": "case-02",
+      "root_account": "1967",
+      "risk_score": 0.9989650980686325,
+      "risk_rank": 2,
+      "grade": "B",
+      "associated_accounts": [
+        "7629",
+        "9215"
+      ],
+      "association_count": 2,
+      "key_facts": {
+        "transaction_count": 4.0,
+        "counterparty_count": 4.0,
+        "same_day_turnover_ratio": 1.0,
+        "has_multi_hop_paths": false
+      },
+      "suspicious_paths": [
+        {
+          "path_id": "path_4a8ac5d1a7b5f87c",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000383993",
+              "from": "1967",
+              "to": "9215",
+              "amount": "52.89",
+              "time": "2025-09-23T01:09:44Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_e29ff0ea4794187a",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000558686",
+              "from": "1967",
+              "to": "7629",
+              "amount": "52.89",
+              "time": "2025-09-23T01:09:44Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_3f617a842c454067",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000537226",
+              "from": "7629",
+              "to": "1967",
+              "amount": "52.89",
+              "time": "2025-09-23T01:35:09Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_2e67565dde590222",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000539983",
+              "from": "9215",
+              "to": "1967",
+              "amount": "52.89",
+              "time": "2025-09-23T01:35:09Z",
+              "gap_seconds": null
+            }
+          ]
+        }
+      ],
+      "path_count": 4,
+      "high_score_paths": 0
+    },
+    {
+      "case_id": "case-03",
+      "root_account": "1562",
+      "risk_score": 0.9982838759274568,
+      "risk_rank": 3,
+      "grade": "B",
+      "associated_accounts": [
+        "1511",
+        "5918"
+      ],
+      "association_count": 2,
+      "key_facts": {
+        "transaction_count": 6.0,
+        "counterparty_count": 4.0,
+        "same_day_turnover_ratio": 0.5,
+        "has_multi_hop_paths": false
+      },
+      "suspicious_paths": [
+        {
+          "path_id": "path_dfc4ffa97a792141",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000468819",
+              "from": "1562",
+              "to": "5918",
+              "amount": "0.06",
+              "time": "2025-12-24T06:37:55Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_b2757151d40c2f7b",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000488858",
+              "from": "1562",
+              "to": "1511",
+              "amount": "0.06",
+              "time": "2025-12-24T06:37:55Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_730e3b715d446190",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000816133",
+              "from": "1511",
+              "to": "1562",
+              "amount": "0.12",
+              "time": "2025-12-24T06:39:09Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_248c39e306a55d92",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000224742",
+              "from": "5918",
+              "to": "1562",
+              "amount": "0.12",
+              "time": "2025-12-24T06:39:09Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_95a1853bd50cb415",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000799266",
+              "from": "5918",
+              "to": "1562",
+              "amount": "607.56",
+              "time": "2025-12-02T06:46:50Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_c6fe7e6498f1854d",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000486208",
+              "from": "1511",
+              "to": "1562",
+              "amount": "607.56",
+              "time": "2025-12-02T06:46:50Z",
+              "gap_seconds": null
+            }
+          ]
+        }
+      ],
+      "path_count": 6,
+      "high_score_paths": 0
+    },
+    {
+      "case_id": "case-04",
+      "root_account": "10978",
+      "risk_score": 0.9933886938746033,
+      "risk_rank": 4,
+      "grade": "A",
+      "associated_accounts": [
+        "1428",
+        "3129",
+        "4704",
+        "7018",
+        "8516"
+      ],
+      "association_count": 5,
+      "key_facts": {
+        "transaction_count": 4.0,
+        "counterparty_count": 4.0,
+        "same_day_turnover_ratio": 1.0,
+        "has_multi_hop_paths": true
+      },
+      "suspicious_paths": [
+        {
+          "path_id": "path_4ca76c7e77a836e2",
+          "direction": "outgoing",
+          "score": 0.8157826094684624,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000903896",
+              "from": "10978",
+              "to": "1428",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000212921",
+              "from": "1428",
+              "to": "7018",
+              "amount": "250.00",
+              "time": "2025-09-02T00:28:53Z",
+              "gap_seconds": 87
+            }
+          ]
+        },
+        {
+          "path_id": "path_534f932023d18f45",
+          "direction": "outgoing",
+          "score": 0.8157826094684624,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000705713",
+              "from": "10978",
+              "to": "4704",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000397287",
+              "from": "4704",
+              "to": "7018",
+              "amount": "250.00",
+              "time": "2025-09-02T00:28:53Z",
+              "gap_seconds": 87
+            }
+          ]
+        },
+        {
+          "path_id": "path_5018f7bb4fda37f4",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000903896",
+              "from": "10978",
+              "to": "1428",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_91fdb3667d7772a1",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000705713",
+              "from": "10978",
+              "to": "4704",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_372f7a72e1ce536e",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000558953",
+              "from": "1428",
+              "to": "10978",
+              "amount": "250.00",
+              "time": "2025-09-02T00:28:53Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_0bd635dc14ec250e",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000744139",
+              "from": "4704",
+              "to": "10978",
+              "amount": "250.00",
+              "time": "2025-09-02T00:28:53Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_dae05df01d96f43d",
+          "direction": "outgoing",
+          "score": 0.666745694989438,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000903896",
+              "from": "10978",
+              "to": "1428",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000415963",
+              "from": "1428",
+              "to": "8516",
+              "amount": "500.00",
+              "time": "2025-09-02T02:27:19Z",
+              "gap_seconds": 7193
+            }
+          ]
+        },
+        {
+          "path_id": "path_0dda8d8751f63e10",
+          "direction": "outgoing",
+          "score": 0.666745694989438,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000903896",
+              "from": "10978",
+              "to": "1428",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000363433",
+              "from": "1428",
+              "to": "3129",
+              "amount": "500.00",
+              "time": "2025-09-02T02:27:19Z",
+              "gap_seconds": 7193
+            }
+          ]
+        },
+        {
+          "path_id": "path_4319c6aeb3c3b2cc",
+          "direction": "outgoing",
+          "score": 0.666745694989438,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000705713",
+              "from": "10978",
+              "to": "4704",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000547010",
+              "from": "4704",
+              "to": "3129",
+              "amount": "500.00",
+              "time": "2025-09-02T02:27:19Z",
+              "gap_seconds": 7193
+            }
+          ]
+        },
+        {
+          "path_id": "path_05ec145a6a61cd08",
+          "direction": "outgoing",
+          "score": 0.666745694989438,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000705713",
+              "from": "10978",
+              "to": "4704",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000600722",
+              "from": "4704",
+              "to": "8516",
+              "amount": "500.00",
+              "time": "2025-09-02T02:27:19Z",
+              "gap_seconds": 7193
+            }
+          ]
+        }
+      ],
+      "path_count": 10,
+      "high_score_paths": 2
+    },
+    {
+      "case_id": "case-05",
+      "root_account": "7018",
+      "risk_score": 0.9933886938746033,
+      "risk_rank": 5,
+      "grade": "A",
+      "associated_accounts": [
+        "10978",
+        "1428",
+        "3129",
+        "4704",
+        "8516"
+      ],
+      "association_count": 5,
+      "key_facts": {
+        "transaction_count": 4.0,
+        "counterparty_count": 4.0,
+        "same_day_turnover_ratio": 1.0,
+        "has_multi_hop_paths": true
+      },
+      "suspicious_paths": [
+        {
+          "path_id": "path_9d2a2001e3bd1e54",
+          "direction": "outgoing",
+          "score": 0.8157826094684624,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000810738",
+              "from": "7018",
+              "to": "4704",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000744139",
+              "from": "4704",
+              "to": "10978",
+              "amount": "250.00",
+              "time": "2025-09-02T00:28:53Z",
+              "gap_seconds": 87
+            }
+          ]
+        },
+        {
+          "path_id": "path_ff5e566004778f6a",
+          "direction": "outgoing",
+          "score": 0.8157826094684624,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000104396",
+              "from": "7018",
+              "to": "1428",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000558953",
+              "from": "1428",
+              "to": "10978",
+              "amount": "250.00",
+              "time": "2025-09-02T00:28:53Z",
+              "gap_seconds": 87
+            }
+          ]
+        },
+        {
+          "path_id": "path_d1b9b29b584123b4",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000810738",
+              "from": "7018",
+              "to": "4704",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_d4c46fb3614f6167",
+          "direction": "outgoing",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000104396",
+              "from": "7018",
+              "to": "1428",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_82822cc97cf1a7df",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000212921",
+              "from": "1428",
+              "to": "7018",
+              "amount": "250.00",
+              "time": "2025-09-02T00:28:53Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_8db167c8e54ce747",
+          "direction": "incoming",
+          "score": 0.7,
+          "evidence": [
+            "DIRECT_TRANSACTION"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000397287",
+              "from": "4704",
+              "to": "7018",
+              "amount": "250.00",
+              "time": "2025-09-02T00:28:53Z",
+              "gap_seconds": null
+            }
+          ]
+        },
+        {
+          "path_id": "path_5556149ae7dd69fc",
+          "direction": "outgoing",
+          "score": 0.666745694989438,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000810738",
+              "from": "7018",
+              "to": "4704",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000600722",
+              "from": "4704",
+              "to": "8516",
+              "amount": "500.00",
+              "time": "2025-09-02T02:27:19Z",
+              "gap_seconds": 7193
+            }
+          ]
+        },
+        {
+          "path_id": "path_741dfbfdedca2d0c",
+          "direction": "outgoing",
+          "score": 0.666745694989438,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000810738",
+              "from": "7018",
+              "to": "4704",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000547010",
+              "from": "4704",
+              "to": "3129",
+              "amount": "500.00",
+              "time": "2025-09-02T02:27:19Z",
+              "gap_seconds": 7193
+            }
+          ]
+        },
+        {
+          "path_id": "path_4db9f9148b50ebf1",
+          "direction": "outgoing",
+          "score": 0.666745694989438,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000104396",
+              "from": "7018",
+              "to": "1428",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000415963",
+              "from": "1428",
+              "to": "8516",
+              "amount": "500.00",
+              "time": "2025-09-02T02:27:19Z",
+              "gap_seconds": 7193
+            }
+          ]
+        },
+        {
+          "path_id": "path_ace5ba2eb78cb254",
+          "direction": "outgoing",
+          "score": 0.666745694989438,
+          "evidence": [
+            "TEMPORAL_CHAIN",
+            "RAPID_SUCCESSION",
+            "AMOUNT_CONTINUITY"
+          ],
+          "steps": [
+            {
+              "transaction_id": "tx_1c37eb3f5640_000104396",
+              "from": "7018",
+              "to": "1428",
+              "amount": "250.00",
+              "time": "2025-09-02T00:27:26Z",
+              "gap_seconds": null
+            },
+            {
+              "transaction_id": "tx_1c37eb3f5640_000363433",
+              "from": "1428",
+              "to": "3129",
+              "amount": "500.00",
+              "time": "2025-09-02T02:27:19Z",
+              "gap_seconds": 7193
+            }
+          ]
+        }
+      ],
+      "path_count": 10,
+      "high_score_paths": 2
+    }
+  ]
+}
