@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 
 from fraud_graph.features.builder import BEHAVIOR_FEATURES
 from fraud_graph.modeling.evaluation import BinaryMetrics, evaluate_binary_scores
@@ -19,9 +20,9 @@ def build_rule_scores(features: pd.DataFrame) -> pd.DataFrame:
     values = features[BEHAVIOR_FEATURES].copy()
     numeric = values.apply(pd.to_numeric, errors="coerce").fillna(0.0)
 
-    def saturation(column: str, scale: float) -> np.ndarray:
+    def saturation(column: str, scale: float) -> NDArray[np.float64]:
         array = np.maximum(numeric[column].to_numpy(dtype=float), 0.0)
-        result: np.ndarray = array / (array + scale)
+        result = np.asarray(array / (array + scale), dtype=np.float64)
         return result
 
     same_day = np.clip(numeric["same_day_turnover_ratio_avg"].to_numpy(dtype=float), 0.0, 1.0)
@@ -56,7 +57,7 @@ def build_rule_scores(features: pd.DataFrame) -> pd.DataFrame:
 
 def evaluate_rule_baseline(
     features: pd.DataFrame,
-    target: np.ndarray | list[int],
+    target: NDArray[np.integer[Any]] | list[int],
     *,
     top_fraction: float = 0.05,
 ) -> tuple[pd.DataFrame, BinaryMetrics]:

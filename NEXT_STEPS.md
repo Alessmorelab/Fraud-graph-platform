@@ -4,30 +4,33 @@
 
 ✅ **任务1：资金图谱样本构建** - 已完成
 - 数据版本：d02568e53fa4e3e3
-- 账户数：11,088
+- 账户数：11,087
 - 交易边数：904,395
 - 时间切分：严格防泄露
 
-✅ **任务2：涉诈账户风险识别** - 指标超标
-- ROC-AUC: 0.934 ✅ (要求≥0.85)
-- Top5%召回率: 57.6% ✅ (要求≥50%)
-- Lift@5%: 11.5x
+✅ **任务2：涉诈账户静态回溯识别** - 阶段性完成
+- 实验版本：89e72026b92b871f
+- 锁定测试 ROC-AUC：0.9573
+- 锁定测试 PR-AUC：0.1753
+- 锁定测试 Top5% 召回率：50.0%
+- 画像依赖明显，且 59 个涉诈账户仅 3 个有交易；非生产时序结论
+
+✅ **任务3：可疑关联账户与资金链路挖掘** - 技术交付完成
+- 任务三版本：50d309d703cbd6e8
+- 案例包版本：a04894ae2c18991c
+- 149条关联记录、326条路径、45个结构模式
+- 自动预检：5/5通过；关系真值缺失，正式人工解释验收待真实复核员完成
 
 ✅ **任务4：辅助研判报告生成** - 已通过验收
 - 验收通过率：100%
 - 案例数：5份
 - 证据完整性：100%
 
-⚠️ **任务3：可疑关联账户与资金链路挖掘** - 等待人工复核
-- 技术验收：已完成
-- 自动预检：5/5通过
-- 人工复核：0/5（待完成）
-
 ---
 
 ## 待办事项（按优先级）
 
-### 🔴 优先级1：完成任务3人工复核（必须）
+### 🔴 优先级1：完成任务3正式人工验收（提交结论前必须）
 
 **时间预估**：1-2小时
 
@@ -37,14 +40,14 @@
 
 2. **复核员1操作**：
    ```bash
-   cd /Users/lessa/Documents/Codex/2026-08-07/xian/outputs/fraud-graph-platform
+   cd "/path/to/fraud-graph-platform"
    
    # 阅读5份案例报告
-   open var/artifacts/case_samples/cc6e83b59a6fe0b4/reports/case-01.md
-   open var/artifacts/case_samples/cc6e83b59a6fe0b4/reports/case-02.md
-   open var/artifacts/case_samples/cc6e83b59a6fe0b4/reports/case-03.md
-   open var/artifacts/case_samples/cc6e83b59a6fe0b4/reports/case-04.md
-   open var/artifacts/case_samples/cc6e83b59a6fe0b4/reports/case-05.md
+   open var/artifacts/case_samples/a04894ae2c18991c/reports/case-01.md
+   open var/artifacts/case_samples/a04894ae2c18991c/reports/case-02.md
+   open var/artifacts/case_samples/a04894ae2c18991c/reports/case-03.md
+   open var/artifacts/case_samples/a04894ae2c18991c/reports/case-04.md
+   open var/artifacts/case_samples/a04894ae2c18991c/reports/case-05.md
    
    # 编辑复核模板（填写真实信息）
    # 替换 REPLACE_WITH_REVIEWER_1_ID 为真实姓名/工号
@@ -64,10 +67,10 @@
 4. **运行验收**：
    ```bash
    fraud-graph evaluate-cases \
-     --input var/artifacts/case_samples/cc6e83b59a6fe0b4/reviewer-1-submission.json \
-     --input var/artifacts/case_samples/cc6e83b59a6fe0b4/reviewer-2-submission.json \
-     --case-sample-dir var/artifacts/case_samples/cc6e83b59a6fe0b4 \
-     --output var/artifacts/case_samples/cc6e83b59a6fe0b4/task3_acceptance.json
+     --input var/artifacts/case_samples/a04894ae2c18991c/reviewer-1-submission.json \
+     --input var/artifacts/case_samples/a04894ae2c18991c/reviewer-2-submission.json \
+     --case-sample-dir var/artifacts/case_samples/a04894ae2c18991c \
+     --output var/artifacts/case_samples/a04894ae2c18991c/task3_acceptance.json
    ```
 
 5. **检查结果**：
@@ -94,16 +97,19 @@ mkdir -p 比赛提交/{任务1,任务2,任务3,任务4,技术报告,代码}
 - [ ] 图统计报告：数据版本 manifest.json
 
 **任务2材料**：
-- [ ] 风险识别模型代码：`src/fraud_graph/models/` 和 `src/fraud_graph/temporal/`
-- [ ] 特征说明：提取特征列表和生成逻辑
-- [ ] 基线对比结果：对比规则基线和传统ML（如果有）
-- [ ] 指标评估报告：从 `var/artifacts/models/27e53f783dde8968/metadata.json` 提取
+- [x] 风险识别模型代码：`src/fraud_graph/modeling/retrospective.py`
+- [x] 行为、图、快照变化和无监督异常特征说明
+- [x] 规则、无监督、行为、画像和混合模型消融
+- [x] 指标报告：`docs/task2-model-performance.md`
+- [x] 机器产物：`var/artifacts/retrospective_experiments/89e72026b92b871f/`
 
 **任务3材料**：
-- [ ] 关联账户清单：导出Top20关联账户结果
-- [ ] 可疑路径结果：证据包中的路径数据
-- [ ] 链路可视化样例：截图或导出图形
-- [ ] 5个典型案例分析：`var/artifacts/case_samples/cc6e83b59a6fe0b4/reports/`
+- [x] 关联账户清单：`var/artifacts/task3/50d309d703cbd6e8/top20_associations.parquet`
+- [x] 可疑路径结果：`var/artifacts/task3/50d309d703cbd6e8/suspicious_paths.parquet`
+- [x] 结构模式结果：`var/artifacts/task3/50d309d703cbd6e8/flow_patterns.parquet`
+- [x] 任务三实现报告：`docs/task3-implementation-report.zh-CN.md`
+- [x] 5个典型案例分析：`var/artifacts/case_samples/a04894ae2c18991c/reports/`
+- [ ] 链路可视化提交截图：从风险工作台选取案例截图
 - [ ] 人工复核结果：`task3_acceptance.json`
 
 **任务4材料**：
@@ -125,13 +131,12 @@ mkdir -p 比赛提交/{任务1,任务2,任务3,任务4,技术报告,代码}
 
 ### 🟢 优先级3：优化和增强（可选）
 
-#### 3.1 提升模型性能（如果时间充裕）
+#### 3.1 补充模型证据（数据允许时）
 
-当前AUC 0.934已经很好，但可以尝试：
-- [ ] 图神经网络：添加GNN模型
-- [ ] 特征工程：增加图结构特征（PageRank、中心性等）
-- [ ] 半监督学习：利用未标注数据
-- [ ] 集成学习：结合多个模型
+- [ ] 获得标签发生/可得时间后执行真正的时序回测
+- [ ] 获得更多有交易涉诈账户后重新评估图模型
+- [ ] 监控画像字段的分布偏移与子群表现
+- [ ] 不以增加 GNN 复杂度替代标签和交易覆盖问题
 
 #### 3.2 增强可视化
 
@@ -151,27 +156,27 @@ mkdir -p 比赛提交/{任务1,任务2,任务3,任务4,技术报告,代码}
 
 ### 查看当前最佳模型指标
 ```bash
-cat var/artifacts/models/27e53f783dde8968/metadata.json | jq '.metrics'
+cat var/artifacts/retrospective_experiments/89e72026b92b871f/metadata.json
 ```
 
 ### 重新导出案例样本
 ```bash
 fraud-graph export-case-samples \
-  --score-version 57908dafafd18a42 \
+  --score-version 33b390249f766d12 \
   --limit 5
 ```
 
 ### 启动Web工作台查看结果
 ```bash
 fraud-graph serve \
-  --score-version 57908dafafd18a42 \
-  --case-sample-version cc6e83b59a6fe0b4 \
+  --score-version 33b390249f766d12 \
+  --case-sample-version a04894ae2c18991c \
   --config config/default.yaml
 ```
 
 ### 查看所有案例报告
 ```bash
-ls -lh var/artifacts/case_samples/cc6e83b59a6fe0b4/reports/
+ls -lh var/artifacts/case_samples/a04894ae2c18991c/reports/
 ```
 
 ---

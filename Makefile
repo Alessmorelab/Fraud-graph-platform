@@ -10,6 +10,6 @@ typecheck:
 	.venv/bin/mypy src
 
 test:
-	.venv/bin/pytest
+	PYTHONPATH=src .venv/bin/pytest
 
 verify: lint typecheck test

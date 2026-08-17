@@ -26,9 +26,19 @@ coverage.xml
 # IDE
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 *~
+
+# Local duplicate document exports
+docs/baseline-comparison 2.md
+docs/task2-model-performance 2.md
+
+# Local one-off analysis helpers
+export_data.py
+generate_visualizations.py
+process_cases.py
 
 # OS
 .DS_Store
@@ -43,3 +53,4 @@ var/
 # Env files
 .env
 .env.*
+!.env.example

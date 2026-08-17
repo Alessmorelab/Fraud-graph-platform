@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -64,14 +65,34 @@ def test_review_workbench_is_read_only_by_default(tmp_path: Path) -> None:
         trust_review_identity_headers = False
 
     client = TestClient(create_app(State()))  # type: ignore[arg-type]
-    assert client.get("/reviews").status_code == 200
+    review_page = client.get("/reviews")
+    assert review_page.status_code == 200
+    assert "API 合同" not in review_page.text
+    assert 'href="/docs"' not in review_page.text
     assert client.get("/assets/reviews.js").status_code == 200
     cases = client.get("/v1/reviews/cases")
     assert cases.status_code == 200
     assert cases.json()["write_enabled"] is False
     assert len(cases.json()["items"]) == 5
     assert cases.json()["items"][0]["status"] == "awaiting_primary_reviews"
-    assert client.get("/v1/reviews/cases/case-01/report").status_code == 200
+    markdown_report = client.get("/v1/reviews/cases/case-01/report")
+    assert markdown_report.status_code == 200
+    assert markdown_report.headers["content-type"].startswith("text/markdown")
+    assert "No transaction evidence." in markdown_report.text
+    assert "Human review only." in markdown_report.text
+    html_report = client.get(
+        "/v1/reviews/cases/case-01/report", params={"view": "html"}
+    )
+    assert html_report.status_code == 200
+    assert html_report.headers["content-type"].startswith("text/html")
+    assert "案例 case-01" in html_report.text
+    assert 'class="report-page"' in html_report.text
+    assert "当前没有可核验的交易证据。" in html_report.text
+    assert "仅供人工复核。" in html_report.text
+    review_script = client.get("/assets/reviews.js").text
+    assert "report?view=html" in review_script
+    assert "主模型风险分数" in review_script
+    assert "字段代码" in review_script
     assert client.get("/v1/reviews/templates/primary-reviewer-1.json").status_code == 200
     assert (
         client.post(
@@ -88,6 +109,38 @@ def test_review_workbench_is_read_only_by_default(tmp_path: Path) -> None:
         ).status_code
         == 503
     )
+
+
+def test_read_only_workbench_loads_offline_batch_reviews(tmp_path: Path) -> None:
+    manifest = export_illustrative_cases(_case_packets(), tmp_path / "cases", score_version="s")
+    case_dir = tmp_path / "cases" / manifest.case_sample_version
+    for reviewer_id, template_file in zip(
+        ("reviewer-1", "reviewer-2"),
+        manifest.primary_review_template_files,
+        strict=True,
+    ):
+        payload = json.loads((case_dir / template_file).read_text(encoding="utf-8"))
+        for review in payload:
+            review.update(
+                reviewer_id=reviewer_id,
+                reviewer_role="independent reviewer",
+                reviewed_at="2026-08-17T15:30:00+08:00",
+                independence_attested=True,
+                evidence_consistent=True,
+                path_explanation_pass=True,
+                readability_pass=True,
+                evidence_types_verified=["MODEL", "BEHAVIOR"],
+                notes="independently reviewed",
+            )
+        target = case_dir / f"{reviewer_id}-submission.json"
+        target.write_text(json.dumps(payload), encoding="utf-8")
+
+    workflow = ReviewWorkflow(case_dir)
+
+    assert workflow.write_enabled is False
+    assert workflow.acceptance_status().acceptance_passed is True
+    assert workflow.acceptance_status().human_reviews == 10
+    assert {item.status for item in workflow.list_cases().items} == {"passed"}
 
 
 def test_review_workflow_accepts_hash_bound_primary_reviews(tmp_path: Path) -> None:

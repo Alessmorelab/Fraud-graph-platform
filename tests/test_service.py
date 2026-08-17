@@ -156,13 +156,30 @@ def test_operations_workbench_and_frontend_contracts() -> None:
     home = client.get("/")
     assert home.status_code == 200
     assert "反诈资金图谱" in home.text
-    assert client.get("/assets/app.js").status_code == 200
+    assert "API 合同" not in home.text
+    assert 'href="/docs"' not in home.text
+    assert "/assets/styles.css?v=risk-workbench-6" in home.text
+    assert "/assets/app.js?v=risk-workbench-6" in home.text
+    app_script = client.get("/assets/app.js")
+    assert app_script.status_code == 200
+    assert "主模型风险分数" in app_script.text
+    assert "字段代码" in app_script.text
+    assert "你可以这样问" in app_script.text
+    assert "账户研判" in app_script.text
+    assert "系统解释" in app_script.text
+    assert "上线阻断项" not in app_script.text
+    assert client.get("/assets/report.css").status_code == 200
     assert client.get("/assets/styles.css").status_code == 200
+    assert client.get("/docs").status_code == 200
     snapshots = client.get("/snapshots")
     assert snapshots.status_code == 200
+    assert "API 合同" not in snapshots.text
+    assert 'href="/docs"' not in snapshots.text
     assert "动态图快照" in snapshots.text
-    assert "/assets/styles.css?v=snapshot-workbench-2" in snapshots.text
-    assert "/assets/snapshots.js?v=snapshot-workbench-2" in snapshots.text
+    assert "/assets/styles.css?v=snapshot-workbench-3" in snapshots.text
+    assert "/assets/snapshots.js?v=snapshot-workbench-3" in snapshots.text
+    assert "重点关系" in snapshots.text
+    assert "完整子图" in snapshots.text
     assert client.get("/assets/snapshots.js").status_code == 200
 
     summary = client.get("/v1/operations/summary")
@@ -176,6 +193,21 @@ def test_operations_workbench_and_frontend_contracts() -> None:
     workspace = client.get("/v1/accounts/1/workspace")
     assert workspace.status_code == 200
     assert workspace.json()["evidence"]["score"]["risk_score"] == 0.8
+
+    markdown_report = client.get("/v1/accounts/1/report")
+    assert markdown_report.status_code == 200
+    assert markdown_report.headers["content-type"].startswith("text/markdown")
+    assert "No transactions." in markdown_report.text
+    assert "Review." in markdown_report.text
+    html_report = client.get("/v1/accounts/1/report", params={"view": "html"})
+    assert html_report.status_code == 200
+    assert html_report.headers["content-type"].startswith("text/html")
+    assert 'class="report-page"' in html_report.text
+    assert "账户 1 研判报告" in html_report.text
+    assert "当前观察窗口内未发现交易。" in html_report.text
+    assert "建议进行人工复核。" in html_report.text
+    assert "/assets/report.css?v=report-reader-1" in html_report.text
+    assert "report?view=html" in client.get("/assets/app.js").text
 
     capabilities = client.get("/v1/capabilities")
     assert capabilities.status_code == 200

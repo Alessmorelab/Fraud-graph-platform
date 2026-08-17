@@ -37,6 +37,73 @@ const amountFormatter = new Intl.NumberFormat("zh-CN", {
   maximumFractionDigits: 2,
 });
 
+const reviewFactLabels = {
+  MODEL_RISK_SCORE: ["主模型风险分数", "任务二最终模型输出的账户风险概率"],
+  TXN_COUNT_TOTAL: ["观察窗口交易笔数", "观察窗口内发生的交易总笔数"],
+  COUNTERPARTY_COUNT_TOTAL: ["交易对手数量", "观察窗口内有资金往来的不同账户数"],
+  SAME_DAY_IN_OUT_DAYS: ["同日收付活跃天数", "同一天内同时发生资金流入和流出的天数"],
+  SAME_DAY_TURNOVER_RATIO_AVG: ["同日资金周转比例", "同日流入资金被流出资金覆盖的平均比例"],
+  CITED_DIRECT_TRANSACTIONS: ["直接交易关系", "由源交易记录支持的一跳账户关系"],
+  SUPPORTED_MULTI_HOP_PATHS: ["多跳时序资金链", "由源交易支持且时间顺序连续的多跳路径"],
+  FLOW_PATTERNS: ["异常资金流向模式", "识别出的资金汇聚、分散、快速中转或双向互转模式"],
+};
+
+const reviewNarrativeTranslations = {
+  "Only direct transaction relationships were found; no qualifying multi-hop temporal path was established.": "仅发现直接交易关系，尚未形成满足约束的多跳时序资金链。",
+  "No qualifying multi-hop temporal path was found in the configured window.": "当前观察窗口内未发现满足约束的多跳时序资金链。",
+  "No transaction was observed in the configured window; no funding path can be asserted.": "当前观察窗口内未发现交易，因此不能认定存在资金链路。",
+  "Model output is decision support and does not authorize automatic freezing.": "模型结果仅用于辅助研判，不构成自动止付或冻结的依据。",
+  "The referenced model is not production-eligible and must not drive an operational decision.": "当前模型尚不具备生产决策资格，不得直接驱动业务处置。",
+  "No transaction evidence.": "当前没有可核验的交易证据。",
+  "No transactions.": "当前观察窗口内未发现交易。",
+  "Prioritize manual case review.": "优先进入人工案例复核队列。",
+  "Verify the cited transactions and related accounts against authorized internal data.": "结合已授权的内部数据，核验报告引用的交易和关联账户。",
+  "Escalate through the bank's existing approval workflow when corroborated.": "取得其他证据印证后，按银行现有审批流程升级处置。",
+  "Review behavioral anomalies and expand the observation window.": "复核行为异常，并视需要扩大交易观察窗口。",
+  "Check additional authorized channels before escalation.": "升级处置前，通过其他已授权渠道补充核验。",
+  "Treat the score as unsupported by observed transaction evidence.": "当前风险分数缺少已观察交易证据支持，应谨慎使用。",
+  "Obtain additional transaction or channel evidence before case escalation.": "升级为案件前，应补充交易或其他渠道证据。",
+  "Human review only.": "仅供人工复核。",
+  "Review.": "建议进行人工复核。",
+};
+
+function reviewOptionalScore(value) {
+  return value === null || value === undefined ? "--" : scoreFormatter.format(Number(value));
+}
+
+function reviewPatternLabel(patternType) {
+  return {
+    FAN_IN: "资金汇聚",
+    FAN_OUT: "资金分散",
+    PASS_THROUGH: "快速中转",
+    RECIPROCAL: "双向互转",
+  }[patternType] || patternType;
+}
+
+function reviewFactLabel(code) {
+  return reviewFactLabels[code]?.[0] || code;
+}
+
+function reviewFactDescription(code, fallback) {
+  return reviewFactLabels[code]?.[1] || fallback;
+}
+
+function reviewFactValue(fact) {
+  if (fact.value === null || fact.value === undefined) return "--";
+  const numeric = Number(fact.value);
+  if (!Number.isFinite(numeric)) return String(fact.value);
+  if (Number.isInteger(numeric)) return String(numeric);
+  if (fact.code === "MODEL_RISK_SCORE") return numeric.toFixed(6);
+  return numeric.toFixed(3);
+}
+
+function localizeReviewNarrative(value) {
+  if (String(value).startsWith("Model eligibility blockers:")) {
+    return "模型仍存在上述上线阻断项，当前不得用于生产决策。";
+  }
+  return reviewNarrativeTranslations[value] || value;
+}
+
 function escapeReviewHtml(value) {
   return String(value ?? "")
     .replaceAll("&", "&amp;")
@@ -106,14 +173,14 @@ function renderReviewCase(detail) {
   reviewElements["primary-reviewers"].textContent = `${detail.primary_reviewer_count} / 2`;
   reviewElements["packet-hash"].textContent = `${detail.packet_sha256.slice(0, 12)}…${detail.packet_sha256.slice(-8)}`;
   reviewElements["packet-hash"].title = detail.packet_sha256;
-  reviewElements["case-report-link"].href = `/v1/reviews/cases/${encodeURIComponent(detail.case_id)}/report`;
+  reviewElements["case-report-link"].href = `/v1/reviews/cases/${encodeURIComponent(detail.case_id)}/report?view=html`;
 
   const facts = packet.facts.map((fact) => `
     <div class="review-fact">
-      <span>${escapeReviewHtml(fact.code)}</span>
-      <strong>${escapeReviewHtml(fact.value)}</strong>
-      <p>${escapeReviewHtml(fact.description)}</p>
-      ${fact.transaction_ids.length ? `<small>${escapeReviewHtml(fact.transaction_ids.join(" · "))}</small>` : ""}
+      <span>${escapeReviewHtml(reviewFactLabel(fact.code))}</span>
+      <strong>${escapeReviewHtml(reviewFactValue(fact))}</strong>
+      <p>${escapeReviewHtml(reviewFactDescription(fact.code, fact.description))}</p>
+      <small>字段代码 ${escapeReviewHtml(fact.code)}${fact.transaction_ids.length ? ` · 交易ID ${escapeReviewHtml(fact.transaction_ids.join(" · "))}` : ""}</small>
     </div>
   `).join("");
   const paths = packet.paths.map((path, index) => `
@@ -130,10 +197,18 @@ function renderReviewCase(detail) {
       `).join("")}</ol>
     </section>
   `).join("");
+  const patterns = packet.patterns.map((pattern) => `
+    <div class="review-pattern">
+      <div><strong>${escapeReviewHtml(reviewPatternLabel(pattern.pattern_type))}</strong><span>${scoreFormatter.format(pattern.score)}</span></div>
+      <p>${escapeReviewHtml(pattern.description)} · ${pattern.transaction_ids.length} 笔交易 · ${pattern.related_account_ids.length} 个关联账户</p>
+    </div>
+  `).join("");
 
   reviewElements["review-evidence-body"].innerHTML = `
     <section class="review-risk-summary">
       <div><span>风险分数</span><strong>${scoreFormatter.format(packet.score.risk_score)}</strong></div>
+      <div><span>证据分数</span><strong>${reviewOptionalScore(packet.score.evidence_score)}</strong></div>
+      <div><span>异常分数</span><strong>${reviewOptionalScore(packet.score.anomaly_score)}</strong></div>
       <div><span>风险排序</span><strong>#${packet.score.risk_rank}</strong></div>
       <div><span>路径数量</span><strong>${packet.paths.length}</strong></div>
       <div><span>上线资格</span><strong>${packet.score.production_eligible ? "可用" : "禁止"}</strong></div>
@@ -142,9 +217,11 @@ function renderReviewCase(detail) {
     <div class="review-facts">${facts}</div>
     <p class="section-label">资金链路</p>
     <div class="review-paths">${paths || '<p class="limit-item">当前案例没有合格资金链路。</p>'}</div>
+    <p class="section-label">资金流向模式</p>
+    <div class="review-patterns">${patterns || '<p class="limit-item">未发现满足阈值的结构模式。</p>'}</div>
     <div class="review-notes-grid">
-      <section><p class="section-label">局限性</p>${packet.limitations.map((item) => `<p>${escapeReviewHtml(item)}</p>`).join("")}</section>
-      <section><p class="section-label">辅助建议</p>${packet.recommended_actions.map((item) => `<p>${escapeReviewHtml(item)}</p>`).join("")}</section>
+      <section><p class="section-label">局限性</p>${packet.limitations.map((item) => `<p>${escapeReviewHtml(localizeReviewNarrative(item))}</p>`).join("")}</section>
+      <section><p class="section-label">辅助建议</p>${packet.recommended_actions.map((item) => `<p>${escapeReviewHtml(localizeReviewNarrative(item))}</p>`).join("")}</section>
     </div>
   `;
 }

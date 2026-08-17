@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 from datetime import UTC, datetime
 from pathlib import Path
@@ -234,7 +235,9 @@ class ReviewWorkflow:
         )
 
     def _load_human_reviews(self) -> list[ManualCaseReview]:
-        if self.submission_dir is None or not self.submission_dir.exists():
+        if self.submission_dir is None:
+            return self._load_offline_human_reviews()
+        if not self.submission_dir.exists():
             return []
         reviews: list[ManualCaseReview] = []
         for path in sorted(self.submission_dir.glob("*.json")):
@@ -249,6 +252,20 @@ class ReviewWorkflow:
                     f"review submission artifact is not a human review: {path.name}"
                 )
             reviews.append(review)
+        return reviews
+
+    def _load_offline_human_reviews(self) -> list[ManualCaseReview]:
+        reviews: list[ManualCaseReview] = []
+        for path in sorted(self.case_sample_dir.glob("*-submission.json")):
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                if not isinstance(payload, list):
+                    raise ValueError("offline review submission must be a JSON array")
+                reviews.extend(ManualCaseReview.model_validate(item) for item in payload)
+            except (OSError, ValueError) as exc:
+                raise ArtifactNotReadyError(
+                    f"invalid offline review submission artifact: {path.name}"
+                ) from exc
         return reviews
 
     @staticmethod

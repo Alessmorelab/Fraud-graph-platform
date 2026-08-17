@@ -24,6 +24,7 @@ from fraud_graph.evidence.evaluation import (
     evaluate_case_associations,
     evaluate_manual_cases,
     evaluate_report_consistency,
+    validate_evidence_packet,
 )
 
 
@@ -149,6 +150,35 @@ def test_report_consistency_rejects_uncited_transaction() -> None:
     assert "FACT_TRANSACTION_NOT_IN_PATH:CITED_DIRECT_TRANSACTIONS" in result.issues[0]["errors"]
 
 
+def test_static_retrospective_packets_accept_canonical_blockers() -> None:
+    score = RiskScore(
+        account_id="a",
+        risk_score=0.9,
+        risk_rank=1,
+        model_version="m",
+        data_version="d",
+        feature_as_of=datetime(2025, 1, 1, tzinfo=UTC),
+        has_transactions=False,
+        model_training_mode="retrospective_static",
+        model_feature_set="combined",
+        eligibility_blockers=["LABEL_TIME_MISSING", "RETROSPECTIVE_STATIC_TARGET"],
+    )
+    packet = EvidencePacket(
+        account_id="a",
+        generated_at=datetime(2025, 1, 1, tzinfo=UTC),
+        score=score,
+        grade=EvidenceGrade.C,
+        facts=[
+            {"code": "MODEL_RISK_SCORE", "description": "score", "value": 0.9},
+            {"code": "PROFILE_REGION", "description": "region", "value": "east"},
+        ],
+        paths=[],
+        limitations=["Static retrospective only."],
+        recommended_actions=["Human review only."],
+    )
+    assert validate_evidence_packet(packet) == []
+
+
 def test_illustrative_case_export_is_explicitly_not_evaluable(tmp_path) -> None:
     packets = []
     for account_id in ["a", "b", "c", "d", "e"]:
@@ -180,6 +210,36 @@ def test_illustrative_case_export_is_explicitly_not_evaluable(tmp_path) -> None:
         for template_file in manifest.primary_review_template_files
     )
     assert (tmp_path / manifest.case_sample_version / manifest.adjudication_template_file).is_file()
+
+
+def test_case_sample_version_changes_when_packet_content_changes(tmp_path) -> None:
+    packets = []
+    for account_id in ["a", "b", "c", "d", "e"]:
+        packets.append(
+            EvidencePacket(
+                account_id=account_id,
+                generated_at=datetime(2025, 1, 1, tzinfo=UTC),
+                score=RiskScore(
+                    account_id=account_id,
+                    risk_score=0.8,
+                    risk_rank=1,
+                    model_version="m",
+                    data_version="d",
+                    feature_as_of=datetime(2025, 1, 1, tzinfo=UTC),
+                    has_transactions=False,
+                ),
+                grade=EvidenceGrade.C,
+                facts=[],
+                paths=[],
+                limitations=[],
+                recommended_actions=[],
+            )
+        )
+    first = export_illustrative_cases(packets, tmp_path, score_version="s")
+    changed = [packet.model_copy(deep=True) for packet in packets]
+    changed[0].score = changed[0].score.model_copy(update={"risk_score": 0.81})
+    second = export_illustrative_cases(changed, tmp_path, score_version="s")
+    assert first.case_sample_version != second.case_sample_version
 
 
 def test_task4_acceptance_verifies_structured_and_rendered_reports(tmp_path) -> None:

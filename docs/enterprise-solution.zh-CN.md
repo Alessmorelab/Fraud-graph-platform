@@ -145,8 +145,8 @@ embedding 和标准化参数都不得进入当前样本。每次特征构建需�
 复核写入默认关闭。只有在银行 IAM/API 网关已完成身份认证并注入
 `X-Verified-Reviewer-Id`、`X-Verified-Reviewer-Role` 后，才允许使用
 `--enable-review-writes --trust-review-identity-headers`。身份、时间和人工结论不能由浏览器请求体
-生成；服务按案例哈希、阶段和重复提交规则校验，保留追加式提交记录。当前案例包仍是
-`pending_human_review`，不会因为页面可用而改变任务 3 的验收结论。
+生成；服务按案例哈希、阶段和重复提交规则校验，保留追加式提交记录。当前案例包已通过离线双人独立复核，
+正式结果保存在 `task3_manual_acceptance.json`；页面可用性本身不参与任务 3 验收判定。
 
 ## 9. AI 辅助编码实施顺序
 
@@ -184,9 +184,9 @@ embedding 和标准化参数都不得进入当前样本。每次特征构建需�
 补齐时间标签后，执行 `build-temporal-samples` 和 `train-temporal` 会生成按锚点隔离的 train/validation/test
 产物，并在 manifest 中记录未来交易和未来标签泄露率；补齐案件关系真值后，系统才能给出关联账户真实命中率。
 
-当前已导出 5 个绑定证据哈希的待复核案例，包含 3 个直接关系案例和 2 个两跳链路案例。任务 4 已通过
+当前已导出 5 个绑定证据哈希的待复核案例，包含 1 个两跳链路案例和 4 个直接关系加结构模式案例。任务 4 已通过
 结构化证据和最终 Markdown 文件的双重验收：5/5 报告一致，证据类型覆盖率、完整率和精确渲染匹配率均为
-100%。正式产物见 `var/artifacts/case_samples/cc6e83b59a6fe0b4/task4_acceptance.json`。
+100%。正式产物见 `var/artifacts/case_samples/a04894ae2c18991c/task4_acceptance.json`。
 
 任务 3 的人工案例替代指标不依赖案件关系真值，但必须由真实复核人员完成：每个案例至少两名独立人工复核员，
 五个案例至少十份主审记录，严格案例通过率不低于 70%；冲突案例必须由第三名复核员仲裁。自动预检在数据结构上

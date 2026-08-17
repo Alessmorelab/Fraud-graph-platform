@@ -10,6 +10,7 @@ import joblib
 import numpy as np
 import pyarrow as pa
 import pyarrow.parquet as pq
+from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
@@ -34,8 +35,8 @@ MODEL_EVALUATION_SCHEME = "stratified-oof-diagnostic"
 SCORE_IMPLEMENTATION_VERSION = "batch-score-v3"
 
 
-def _signed_log_transform(values: np.ndarray) -> np.ndarray:
-    return np.sign(values) * np.log1p(np.abs(values))
+def _signed_log_transform(values: NDArray[np.float64]) -> NDArray[np.float64]:
+    return np.asarray(np.sign(values) * np.log1p(np.abs(values)), dtype=np.float64)
 
 
 class EvaluationMetrics(BaseModel):
@@ -316,7 +317,11 @@ def _make_pipeline(
     )
 
 
-def _evaluate(target: np.ndarray, scores: np.ndarray, top_fraction: float) -> EvaluationMetrics:
+def _evaluate(
+    target: NDArray[np.int8],
+    scores: NDArray[np.float64],
+    top_fraction: float,
+) -> EvaluationMetrics:
     metrics = evaluate_binary_scores(target, scores, top_fraction=top_fraction)
     return EvaluationMetrics(
         roc_auc=metrics.roc_auc if metrics.roc_auc is not None else 0.0,

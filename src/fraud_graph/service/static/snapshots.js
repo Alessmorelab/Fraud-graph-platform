@@ -8,6 +8,7 @@ const snapshotState = {
   playTimer: null,
   graphScale: 1,
   graphPan: { x: 0, y: 0 },
+  graphMode: "focus",
   selectedNode: null,
   selectedEdge: null,
 };
@@ -48,6 +49,8 @@ const snapshotElements = Object.fromEntries(
     "snapshot-zoom-out",
     "snapshot-fit",
     "snapshot-zoom-in",
+    "snapshot-view-focus",
+    "snapshot-view-all",
     "snapshot-toast",
   ].map((id) => [id, document.getElementById(id)])
 );
@@ -105,13 +108,23 @@ function formatSnapshotAmount(value) {
 }
 
 function labelTone(labelType) {
-  if (labelType === "涉诈账户") return "suspect";
-  if (labelType === "受害人") return "victim";
+  if (["嫌疑人", "嫌疑账户", "涉诈账户"].includes(labelType)) return "suspect";
+  if (["受害人", "受害账户"].includes(labelType)) return "victim";
   return "other";
 }
 
 function labelName(labelType) {
-  return labelType === "其它" ? "其他账户" : labelType;
+  const tone = labelTone(labelType);
+  if (tone === "suspect") return "嫌疑账户";
+  if (tone === "victim") return "受害账户";
+  return "其他账户";
+}
+
+function formatGraphAmount(value) {
+  const number = Math.abs(Number(value));
+  if (number >= 1e8) return `${(number / 1e8).toFixed(number >= 1e10 ? 0 : 1)}亿`;
+  if (number >= 1e4) return `${(number / 1e4).toFixed(number >= 1e6 ? 0 : 1)}万`;
+  return snapshotNumber.format(number);
 }
 
 async function loadSnapshotManifest() {
@@ -223,14 +236,104 @@ function renderSparkline(elementId, values) {
     <circle class="snapshot-spark-point" cx="${selected.x}" cy="${selected.y}" r="3.6"></circle>`;
 }
 
+function snapshotEdgeRank(edge) {
+  return Number(edge.amount_abs_sum) + Number(edge.transaction_count) * 1000;
+}
+
+function snapshotFocusedGraph(nodes, edges) {
+  const indexedEdges = edges.map((edge, index) => ({ ...edge, _snapshotIndex: index }));
+  if (snapshotState.graphMode === "all") return { nodes, edges: indexedEdges };
+
+  const nodeLimit = 44;
+  const edgeLimit = 70;
+  const riskIds = new Set(
+    nodes
+      .filter((node) => labelTone(node.label_type) !== "other")
+      .map((node) => String(node.account_id))
+  );
+  const selectedIds = new Set(riskIds);
+  const selectedEdges = [];
+  const selectedEdgeIndexes = new Set();
+  const rankedEdges = [...indexedEdges].sort((a, b) => snapshotEdgeRank(b) - snapshotEdgeRank(a));
+
+  function addEdge(edge) {
+    if (selectedEdgeIndexes.has(edge._snapshotIndex)) return false;
+    const endpoints = [String(edge.payer_account_id), String(edge.payee_account_id)];
+    const missing = endpoints.filter((accountId) => !selectedIds.has(accountId));
+    if (selectedIds.size + new Set(missing).size > nodeLimit) return false;
+    endpoints.forEach((accountId) => selectedIds.add(accountId));
+    selectedEdgeIndexes.add(edge._snapshotIndex);
+    selectedEdges.push(edge);
+    return true;
+  }
+
+  [...riskIds].forEach((accountId) => {
+    const strongest = rankedEdges.find(
+      (edge) =>
+        String(edge.payer_account_id) === accountId ||
+        String(edge.payee_account_id) === accountId
+    );
+    if (strongest) addEdge(strongest);
+  });
+  rankedEdges
+    .filter(
+      (edge) =>
+        riskIds.has(String(edge.payer_account_id)) ||
+        riskIds.has(String(edge.payee_account_id))
+    )
+    .forEach(addEdge);
+  rankedEdges.forEach((edge) => {
+    if (selectedEdges.length < edgeLimit) addEdge(edge);
+  });
+  rankedEdges.forEach((edge) => {
+    if (selectedEdges.length >= edgeLimit) return;
+    const endpointsSelected =
+      selectedIds.has(String(edge.payer_account_id)) &&
+      selectedIds.has(String(edge.payee_account_id));
+    if (endpointsSelected) addEdge(edge);
+  });
+
+  return {
+    nodes: nodes.filter((node) => selectedIds.has(String(node.account_id))),
+    edges: selectedEdges.slice(0, edgeLimit),
+  };
+}
+
 function calculateSnapshotLayout(nodes, edges) {
   const width = 1100;
   const height = 660;
   const positions = new Map();
-  const ordered = [...nodes].sort((a, b) => String(a.account_id).localeCompare(String(b.account_id)));
-  ordered.forEach((node, index) => {
-    const angle = index * 2.399963229728653;
-    const radius = 44 + Math.sqrt(index / Math.max(1, ordered.length - 1)) * 250;
+  const ordered = [...nodes].sort((a, b) => {
+    const toneOrder = { suspect: 0, victim: 1, other: 2 };
+    const toneDifference = toneOrder[labelTone(a.label_type)] - toneOrder[labelTone(b.label_type)];
+    if (toneDifference) return toneDifference;
+    return snapshotEdgeRank({
+      amount_abs_sum: Number(b.in_amount_abs_sum) + Number(b.out_amount_abs_sum),
+      transaction_count: Number(b.in_transaction_count) + Number(b.out_transaction_count),
+    }) - snapshotEdgeRank({
+      amount_abs_sum: Number(a.in_amount_abs_sum) + Number(a.out_amount_abs_sum),
+      transaction_count: Number(a.in_transaction_count) + Number(a.out_transaction_count),
+    });
+  });
+  const toneIndexes = { suspect: 0, victim: 0, other: 0 };
+  const toneCounts = Object.fromEntries(
+    Object.keys(toneIndexes).map((tone) => [
+      tone,
+      ordered.filter((node) => labelTone(node.label_type) === tone).length,
+    ])
+  );
+  ordered.forEach((node) => {
+    const tone = labelTone(node.label_type);
+    const index = toneIndexes[tone]++;
+    const count = Math.max(1, toneCounts[tone]);
+    const angle = index * 2.399963229728653 + (tone === "victim" ? 0.8 : 0);
+    const progress = count <= 1 ? 0 : index / (count - 1);
+    const radius =
+      tone === "suspect"
+        ? 45 + progress * 35
+        : tone === "victim"
+          ? 145 + progress * 80
+          : 245 + Math.sqrt(progress) * 55;
     positions.set(String(node.account_id), {
       x: width / 2 + Math.cos(angle) * radius * 1.55,
       y: height / 2 + Math.sin(angle) * radius,
@@ -239,8 +342,8 @@ function calculateSnapshotLayout(nodes, edges) {
     });
   });
 
-  for (let iteration = 0; iteration < 130; iteration += 1) {
-    const cooling = 1 - iteration / 150;
+  for (let iteration = 0; iteration < 150; iteration += 1) {
+    const cooling = 1 - iteration / 170;
     for (let i = 0; i < ordered.length; i += 1) {
       const a = positions.get(String(ordered[i].account_id));
       for (let j = i + 1; j < ordered.length; j += 1) {
@@ -248,7 +351,7 @@ function calculateSnapshotLayout(nodes, edges) {
         const dx = a.x - b.x;
         const dy = a.y - b.y;
         const distanceSquared = Math.max(144, dx * dx + dy * dy);
-        const force = 1550 / distanceSquared;
+        const force = 1850 / distanceSquared;
         a.vx += dx * force;
         a.vy += dy * force;
         b.vx -= dx * force;
@@ -262,7 +365,7 @@ function calculateSnapshotLayout(nodes, edges) {
       const dx = to.x - from.x;
       const dy = to.y - from.y;
       const distance = Math.max(1, Math.hypot(dx, dy));
-      const force = (distance - 118) * 0.0035;
+      const force = (distance - 128) * 0.0042;
       from.vx += dx * force;
       from.vy += dy * force;
       to.vx -= dx * force;
@@ -273,8 +376,8 @@ function calculateSnapshotLayout(nodes, edges) {
       position.vy += (height / 2 - position.y) * 0.0018;
       position.vx *= 0.72;
       position.vy *= 0.72;
-      position.x = Math.max(34, Math.min(width - 34, position.x + position.vx * cooling));
-      position.y = Math.max(34, Math.min(height - 34, position.y + position.vy * cooling));
+      position.x = Math.max(54, Math.min(width - 76, position.x + position.vx * cooling));
+      position.y = Math.max(44, Math.min(height - 44, position.y + position.vy * cooling));
     });
   }
   return positions;
@@ -285,10 +388,43 @@ function snapshotNodeRadius(node, maximum) {
   return 7 + (Math.log1p(throughput) / Math.max(1, Math.log1p(maximum))) * 11;
 }
 
+function snapshotEdgeGeometry(from, to, fromRadius, toRadius, curved) {
+  if (from === to) {
+    const radius = fromRadius + 14;
+    return {
+      d: `M ${from.x} ${from.y - radius / 2} C ${from.x + radius * 2} ${from.y - radius * 2}, ${from.x + radius * 2} ${from.y + radius * 2}, ${from.x} ${from.y + radius / 2}`,
+      labelX: from.x + radius * 1.75,
+      labelY: from.y - radius * 1.25,
+    };
+  }
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const length = Math.max(1, Math.hypot(dx, dy));
+  const x1 = from.x + (dx / length) * (fromRadius + 2);
+  const y1 = from.y + (dy / length) * (fromRadius + 2);
+  const x2 = to.x - (dx / length) * (toRadius + 8);
+  const y2 = to.y - (dy / length) * (toRadius + 8);
+  const curve = curved ? 24 : 0;
+  const controlX = (x1 + x2) / 2 + (-dy / length) * curve;
+  const controlY = (y1 + y2) / 2 + (dx / length) * curve;
+  return {
+    d: `M ${x1} ${y1} Q ${controlX} ${controlY} ${x2} ${y2}`,
+    labelX: (x1 + 2 * controlX + x2) / 4,
+    labelY: (y1 + 2 * controlY + y2) / 4 - 5,
+  };
+}
+
 function renderSnapshotGraph() {
-  const { nodes, edges } = snapshotState.detail;
+  const graph = snapshotFocusedGraph(snapshotState.detail.nodes, snapshotState.detail.edges);
+  const { nodes, edges } = graph;
   const viewport = snapshotElements["snapshot-graph-viewport"];
   snapshotElements["snapshot-graph-empty"].hidden = edges.length > 0;
+  const fullNodeCount = snapshotState.detail.sample.node_count;
+  const fullEdgeCount = snapshotState.detail.sample.edge_count;
+  snapshotElements["snapshot-sample-badge"].textContent =
+    snapshotState.graphMode === "focus"
+      ? `${nodes.length}/${fullNodeCount} 节点 · ${edges.length}/${fullEdgeCount} 边`
+      : `${nodes.length} 节点 · ${edges.length} 边`;
   if (!nodes.length) {
     viewport.innerHTML = "";
     return;
@@ -300,47 +436,58 @@ function renderSnapshotGraph() {
     ...nodes.map((node) => Number(node.in_amount_abs_sum) + Number(node.out_amount_abs_sum))
   );
   const maximumEdgeAmount = Math.max(1, ...edges.map((edge) => Number(edge.amount_abs_sum)));
-  const labeled = new Set(
+  const persistentNodeLabels = new Set(
     [...nodes]
       .sort(
         (a, b) =>
           Number(b.in_amount_abs_sum) + Number(b.out_amount_abs_sum) -
           (Number(a.in_amount_abs_sum) + Number(a.out_amount_abs_sum))
       )
-      .slice(0, 12)
+      .slice(0, snapshotState.graphMode === "focus" ? 8 : 5)
       .map((node) => String(node.account_id))
   );
   nodes.forEach((node) => {
-    if (node.label_type === "涉诈账户") labeled.add(String(node.account_id));
+    if (labelTone(node.label_type) === "suspect") {
+      persistentNodeLabels.add(String(node.account_id));
+    }
   });
+  const persistentEdgeLabels = new Set(
+    [...edges]
+      .sort((a, b) => snapshotEdgeRank(b) - snapshotEdgeRank(a))
+      .slice(0, snapshotState.graphMode === "focus" ? 6 : 3)
+      .map((edge) => edge._snapshotIndex)
+  );
+  const directedPairs = new Set(
+    edges.map((edge) => `${edge.payer_account_id}|${edge.payee_account_id}`)
+  );
 
   const edgeMarkup = edges
-    .map((edge, edgeIndex) => {
+    .map((edge) => {
+      const edgeIndex = edge._snapshotIndex;
       const from = positions.get(String(edge.payer_account_id));
       const to = positions.get(String(edge.payee_account_id));
       const fromNode = nodeById.get(String(edge.payer_account_id));
       const toNode = nodeById.get(String(edge.payee_account_id));
       if (!from || !to || !fromNode || !toNode) return "";
-      const width = 0.8 + (Math.log1p(Number(edge.amount_abs_sum)) / Math.log1p(maximumEdgeAmount)) * 3.2;
-      if (from === to) {
-        const radius = snapshotNodeRadius(fromNode, maximumNodeAmount) + 14;
-        return `<g class="snapshot-edge-group" data-edge="${edgeIndex}">
-          <path class="snapshot-edge-hit" d="M ${from.x} ${from.y - radius / 2} C ${from.x + radius * 2} ${from.y - radius * 2}, ${from.x + radius * 2} ${from.y + radius * 2}, ${from.x} ${from.y + radius / 2}"></path>
-          <path class="snapshot-edge" style="stroke-width:${width}" marker-end="url(#snapshot-arrow)" d="M ${from.x} ${from.y - radius / 2} C ${from.x + radius * 2} ${from.y - radius * 2}, ${from.x + radius * 2} ${from.y + radius * 2}, ${from.x} ${from.y + radius / 2}"></path>
-        </g>`;
-      }
-      const dx = to.x - from.x;
-      const dy = to.y - from.y;
-      const length = Math.max(1, Math.hypot(dx, dy));
-      const fromRadius = snapshotNodeRadius(fromNode, maximumNodeAmount) + 2;
-      const toRadius = snapshotNodeRadius(toNode, maximumNodeAmount) + 8;
-      const x1 = from.x + (dx / length) * fromRadius;
-      const y1 = from.y + (dy / length) * fromRadius;
-      const x2 = to.x - (dx / length) * toRadius;
-      const y2 = to.y - (dy / length) * toRadius;
-      return `<g class="snapshot-edge-group" data-edge="${edgeIndex}">
-        <line class="snapshot-edge-hit" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>
-        <line class="snapshot-edge" style="stroke-width:${width}" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" marker-end="url(#snapshot-arrow)"></line>
+      const width =
+        0.9 +
+        (Math.log1p(Number(edge.amount_abs_sum)) / Math.log1p(maximumEdgeAmount)) * 3.3;
+      const fromTone = labelTone(fromNode.label_type);
+      const toTone = labelTone(toNode.label_type);
+      const riskLinked = fromTone !== "other" || toTone !== "other";
+      const marker = riskLinked ? "snapshot-arrow-risk" : "snapshot-arrow";
+      const geometry = snapshotEdgeGeometry(
+        from,
+        to,
+        snapshotNodeRadius(fromNode, maximumNodeAmount),
+        snapshotNodeRadius(toNode, maximumNodeAmount),
+        directedPairs.has(`${edge.payee_account_id}|${edge.payer_account_id}`)
+      );
+      const edgeLabelClass = persistentEdgeLabels.has(edgeIndex) ? " persistent" : "";
+      return `<g class="snapshot-edge-group${riskLinked ? " risk-linked" : ""}" data-edge="${edgeIndex}" data-source="${snapshotEscape(edge.payer_account_id)}" data-target="${snapshotEscape(edge.payee_account_id)}" data-marker="${marker}">
+        <path class="snapshot-edge-hit" d="${geometry.d}"></path>
+        <path class="snapshot-edge" style="stroke-width:${width}" d="${geometry.d}" marker-end="url(#${marker})"></path>
+        <text class="snapshot-edge-label${edgeLabelClass}" x="${geometry.labelX}" y="${geometry.labelY}">${snapshotEscape(formatGraphAmount(edge.amount_abs_sum))}</text>
       </g>`;
     })
     .join("");
@@ -351,18 +498,79 @@ function renderSnapshotGraph() {
       const position = positions.get(id);
       const radius = snapshotNodeRadius(node, maximumNodeAmount);
       const tone = labelTone(node.label_type);
-      const label = labeled.has(id)
-        ? `<text class="snapshot-node-label" x="${position.x + radius + 5}" y="${position.y + 4}">${snapshotEscape(id)}</text>`
-        : "";
+      const labelClass = persistentNodeLabels.has(id) ? " persistent" : "";
+      const glyph = tone === "suspect" ? "嫌" : tone === "victim" ? "受" : "";
       return `<g class="snapshot-node snapshot-node-${tone}" data-node="${snapshotEscape(id)}">
         <circle class="snapshot-node-halo" cx="${position.x}" cy="${position.y}" r="${radius + 5}"></circle>
         <circle class="snapshot-node-core" cx="${position.x}" cy="${position.y}" r="${radius}"></circle>
-        ${label}
+        ${glyph ? `<text class="snapshot-node-glyph" x="${position.x}" y="${position.y + 3.5}">${glyph}</text>` : ""}
+        <text class="snapshot-node-label${labelClass}" x="${position.x + radius + 6}" y="${position.y + 4}">${snapshotEscape(id)}</text>
       </g>`;
     })
     .join("");
   viewport.innerHTML = edgeMarkup + nodeMarkup;
   updateSnapshotGraphTransform();
+  applySnapshotGraphFocus(snapshotState.selectedNode, snapshotState.selectedEdge);
+}
+
+function applySnapshotGraphFocus(accountId = null, edgeIndex = null) {
+  const nodeElements = [...document.querySelectorAll(".snapshot-node")];
+  const edgeElements = [...document.querySelectorAll(".snapshot-edge-group")];
+  const focusedIds = new Set();
+  let hasFocus = false;
+
+  if (accountId) {
+    hasFocus = true;
+    focusedIds.add(String(accountId));
+    edgeElements.forEach((item) => {
+      if (item.dataset.source === accountId || item.dataset.target === accountId) {
+        focusedIds.add(item.dataset.source);
+        focusedIds.add(item.dataset.target);
+      }
+    });
+  } else if (edgeIndex !== null && edgeIndex !== undefined) {
+    const selectedGroup = edgeElements.find(
+      (item) => Number(item.dataset.edge) === Number(edgeIndex)
+    );
+    if (selectedGroup) {
+      hasFocus = true;
+      focusedIds.add(selectedGroup.dataset.source);
+      focusedIds.add(selectedGroup.dataset.target);
+    }
+  }
+
+  nodeElements.forEach((item) => {
+    const related = focusedIds.has(item.dataset.node);
+    item.classList.toggle("related", hasFocus && related);
+    item.classList.toggle("dimmed", hasFocus && !related);
+    item.classList.toggle("selected", Boolean(accountId) && item.dataset.node === accountId);
+  });
+  edgeElements.forEach((item) => {
+    const isSelected =
+      edgeIndex !== null && Number(item.dataset.edge) === Number(edgeIndex);
+    const related = accountId
+      ? item.dataset.source === accountId || item.dataset.target === accountId
+      : isSelected;
+    item.classList.toggle("related", hasFocus && related);
+    item.classList.toggle("dimmed", hasFocus && !related);
+    item.querySelector(".snapshot-edge")?.classList.toggle("selected", isSelected);
+    item
+      .querySelector(".snapshot-edge")
+      ?.setAttribute(
+        "marker-end",
+        isSelected
+          ? "url(#snapshot-arrow-selected)"
+          : `url(#${item.dataset.marker || "snapshot-arrow"})`
+      );
+  });
+}
+
+function clearSnapshotSelection() {
+  snapshotState.selectedNode = null;
+  snapshotState.selectedEdge = null;
+  applySnapshotGraphFocus();
+  snapshotElements["snapshot-inspector"].innerHTML =
+    "<span>选择节点或资金边查看当前窗口内的聚合信息</span>";
 }
 
 function inspectSnapshotNode(accountId) {
@@ -370,13 +578,18 @@ function inspectSnapshotNode(accountId) {
   if (!node) return;
   snapshotState.selectedNode = accountId;
   snapshotState.selectedEdge = null;
-  document.querySelectorAll(".snapshot-node").forEach((item) => {
-    item.classList.toggle("selected", item.dataset.node === accountId);
+  applySnapshotGraphFocus(accountId, null);
+  const counterparties = new Set();
+  snapshotState.detail.edges.forEach((edge) => {
+    const payer = String(edge.payer_account_id);
+    const payee = String(edge.payee_account_id);
+    if (payer === accountId) counterparties.add(payee);
+    if (payee === accountId) counterparties.add(payer);
   });
-  document.querySelectorAll(".snapshot-edge").forEach((item) => item.classList.remove("selected"));
   snapshotElements["snapshot-inspector"].innerHTML = `
     <strong>账户 ${snapshotEscape(accountId)}</strong>
     <span class="snapshot-label-${labelTone(node.label_type)}">${snapshotEscape(labelName(node.label_type))}</span>
+    <span>${snapshotNumber.format(counterparties.size)} 个抽样对手方</span>
     <span>入 ${snapshotNumber.format(node.in_transaction_count)} 笔 / ${formatSnapshotAmount(node.in_amount_abs_sum)}</span>
     <span>出 ${snapshotNumber.format(node.out_transaction_count)} 笔 / ${formatSnapshotAmount(node.out_amount_abs_sum)}</span>
     <span>净流 ${formatSnapshotAmount(node.net_flow_amount)}</span>`;
@@ -387,20 +600,23 @@ function inspectSnapshotEdge(edgeIndex) {
   if (!edge) return;
   snapshotState.selectedNode = null;
   snapshotState.selectedEdge = edgeIndex;
-  document.querySelectorAll(".snapshot-node").forEach((item) => item.classList.remove("selected"));
-  document.querySelectorAll(".snapshot-edge-group").forEach((item, index) => {
-    const selected = index === edgeIndex;
-    item.querySelector(".snapshot-edge")?.classList.toggle("selected", selected);
-    item.querySelector(".snapshot-edge")?.setAttribute(
-      "marker-end",
-      selected ? "url(#snapshot-arrow-selected)" : "url(#snapshot-arrow)"
-    );
-  });
+  applySnapshotGraphFocus(null, edgeIndex);
   snapshotElements["snapshot-inspector"].innerHTML = `
     <strong>${snapshotEscape(edge.payer_account_id)} → ${snapshotEscape(edge.payee_account_id)}</strong>
     <strong class="amount">${formatSnapshotAmount(edge.amount_abs_sum)}</strong>
     <span>${snapshotNumber.format(edge.transaction_count)} 笔聚合交易</span>
     <span>${formatSnapshotDate(edge.first_event_utc, true)} 至 ${formatSnapshotDate(edge.last_event_utc, true)}</span>`;
+}
+
+function setSnapshotGraphMode(mode) {
+  if (!snapshotState.detail || !["focus", "all"].includes(mode)) return;
+  snapshotState.graphMode = mode;
+  snapshotElements["snapshot-view-focus"].classList.toggle("active", mode === "focus");
+  snapshotElements["snapshot-view-all"].classList.toggle("active", mode === "all");
+  clearSnapshotSelection();
+  snapshotState.graphScale = 1;
+  snapshotState.graphPan = { x: 0, y: 0 };
+  renderSnapshotGraph();
 }
 
 function updateSnapshotGraphTransform() {
@@ -437,6 +653,12 @@ function bindSnapshotEvents() {
   snapshotElements["snapshot-previous"].addEventListener("click", () => selectSnapshot(snapshotState.index - 1));
   snapshotElements["snapshot-next"].addEventListener("click", () => selectSnapshot(snapshotState.index + 1));
   snapshotElements["snapshot-play"].addEventListener("click", toggleSnapshotPlayback);
+  snapshotElements["snapshot-view-focus"].addEventListener("click", () =>
+    setSnapshotGraphMode("focus")
+  );
+  snapshotElements["snapshot-view-all"].addEventListener("click", () =>
+    setSnapshotGraphMode("all")
+  );
   snapshotElements["snapshot-slider"].addEventListener("change", (event) => selectSnapshot(Number(event.target.value)));
   snapshotElements["snapshot-picker"].addEventListener("change", (event) => selectSnapshot(Number(event.target.value)));
   snapshotElements["snapshot-zoom-in"].addEventListener("click", () => setSnapshotScale(snapshotState.graphScale + 0.15));
@@ -451,6 +673,17 @@ function bindSnapshotEvents() {
     const edge = event.target.closest("[data-edge]");
     if (node) inspectSnapshotNode(node.dataset.node);
     else if (edge) inspectSnapshotEdge(Number(edge.dataset.edge));
+    else clearSnapshotSelection();
+  });
+  snapshotElements["snapshot-graph-viewport"].addEventListener("pointerover", (event) => {
+    if (snapshotState.selectedNode || snapshotState.selectedEdge !== null) return;
+    const node = event.target.closest("[data-node]");
+    const edge = event.target.closest("[data-edge]");
+    if (node) applySnapshotGraphFocus(node.dataset.node, null);
+    else if (edge) applySnapshotGraphFocus(null, Number(edge.dataset.edge));
+  });
+  snapshotElements["snapshot-graph"].addEventListener("pointerleave", () => {
+    applySnapshotGraphFocus(snapshotState.selectedNode, snapshotState.selectedEdge);
   });
   snapshotElements["snapshot-graph"].addEventListener(
     "wheel",

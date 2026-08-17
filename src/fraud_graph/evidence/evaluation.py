@@ -404,8 +404,12 @@ def validate_evidence_packet(packet: EvidencePacket) -> list[str]:
     if packet.score.model_training_mode == "retrospective_static":
         if packet.score.production_eligible:
             errors.append("STATIC_RETROSPECTIVE_MARKED_PRODUCTION_ELIGIBLE")
-        required_blockers = {"NON_TEMPORAL_DIAGNOSTIC_EVALUATION", "LABEL_TIME_MISSING"}
-        if not required_blockers.issubset(packet.score.eligibility_blockers):
+        blocker_codes = set(packet.score.eligibility_blockers)
+        has_static_target_blocker = bool(
+            blocker_codes
+            & {"RETROSPECTIVE_STATIC_TARGET", "NON_TEMPORAL_DIAGNOSTIC_EVALUATION"}
+        )
+        if "LABEL_TIME_MISSING" not in blocker_codes or not has_static_target_blocker:
             errors.append("STATIC_RETROSPECTIVE_BLOCKERS_MISSING")
     evidence_types = {"MODEL"}
     if any(

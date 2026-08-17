@@ -32,11 +32,21 @@ class SnapshotConfig(BaseModel):
     observation_days: int = Field(default=28, ge=1, le=3_650)
     anchor_step_days: int = Field(default=7, ge=1, le=365)
     include_events: bool = True
+    train_fraction: float = Field(default=0.6, gt=0.0, lt=1.0)
+    validation_fraction: float = Field(default=0.2, gt=0.0, lt=1.0)
+    embargo_days: int | None = Field(default=None, ge=0, le=3_650)
 
     @model_validator(mode="after")
     def validate_window_coverage(self) -> SnapshotConfig:
         if self.anchor_step_days > self.observation_days:
             raise ValueError("anchor_step_days must not exceed observation_days")
+        if self.train_fraction + self.validation_fraction >= 1.0:
+            raise ValueError("train_fraction + validation_fraction must be less than 1")
+        effective_embargo = (
+            self.observation_days if self.embargo_days is None else self.embargo_days
+        )
+        if effective_embargo < self.observation_days:
+            raise ValueError("embargo_days must cover the complete observation window")
         return self
 
 
@@ -59,8 +69,15 @@ class ModelConfig(BaseModel):
     positive_labels: list[int] = Field(default_factory=lambda: [1])
     include_profile_features: bool = False
     random_seed: int = 20260807
+    validation_size: float = Field(default=0.2, gt=0.0, lt=0.5)
     test_size: float = Field(default=0.2, gt=0.0, lt=0.5)
     top_fraction: float = Field(default=0.05, gt=0.0, le=0.5)
+
+    @model_validator(mode="after")
+    def validate_static_split_fractions(self) -> ModelConfig:
+        if self.validation_size + self.test_size >= 1.0:
+            raise ValueError("validation_size + test_size must be less than 1")
+        return self
 
 
 class PathConfig(BaseModel):

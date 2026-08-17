@@ -56,6 +56,22 @@ class AssociatedAccount(BaseModel):
     transaction_ids: list[str]
     path_ids: list[str]
     evidence_codes: list[str]
+    supporting_path_count: int = Field(default=1, ge=1)
+    associated_risk_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    associated_evidence_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    pattern_types: list[str] = Field(default_factory=list)
+
+
+class FlowPattern(BaseModel):
+    pattern_id: str = Field(min_length=1)
+    pattern_type: Literal["FAN_IN", "FAN_OUT", "PASS_THROUGH", "RECIPROCAL"]
+    root_account_id: str
+    score: float = Field(ge=0.0, le=1.0)
+    transaction_ids: list[str]
+    related_account_ids: list[str]
+    event_time_start: datetime
+    event_time_end: datetime
+    description: str
 
 
 class RiskScore(BaseModel):
@@ -70,6 +86,8 @@ class RiskScore(BaseModel):
     model_feature_set: Literal["behavior", "profile", "combined", "unknown"] = "unknown"
     production_eligible: bool = False
     eligibility_blockers: list[str] = Field(default_factory=list)
+    evidence_score: float | None = Field(default=None, ge=0.0, le=1.0)
+    anomaly_score: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class EvidenceFact(BaseModel):
@@ -86,6 +104,7 @@ class EvidencePacket(BaseModel):
     grade: EvidenceGrade
     facts: list[EvidenceFact]
     paths: list[SuspiciousPath]
+    patterns: list[FlowPattern] = Field(default_factory=list)
     limitations: list[str]
     recommended_actions: list[str]
 

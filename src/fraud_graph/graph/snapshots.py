@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from bisect import bisect_left
 from collections import Counter
 from datetime import UTC, datetime, time, timedelta
 from decimal import Decimal
@@ -12,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import duckdb
 import pyarrow as pa
+import pyarrow.csv as pacsv
 import pyarrow.parquet as pq
 from pydantic import BaseModel, Field, model_validator
 
@@ -19,12 +21,17 @@ from fraud_graph.artifacts import atomic_artifact_directory
 from fraud_graph.data.manifest import DataManifest
 from fraud_graph.errors import ArtifactNotReadyError, DataContractError, ProductionSafetyError
 
-SNAPSHOT_IMPLEMENTATION_VERSION = "rolling-directed-graph-v2"
+SNAPSHOT_IMPLEMENTATION_VERSION = "rolling-directed-graph-v3"
+SnapshotSplit = Literal["train", "validation", "test"]
+SnapshotSplitStatus = Literal["assigned", "embargo", "unassigned"]
+SnapshotSplitAssignment = tuple[SnapshotSplit | None, SnapshotSplitStatus]
 SNAPSHOT_STATS_SCHEMA = pa.schema(
     [
         pa.field("snapshot_id", pa.string(), nullable=False),
         pa.field("anchor_at", pa.timestamp("us", tz="UTC"), nullable=False),
         pa.field("window_start", pa.timestamp("us", tz="UTC"), nullable=False),
+        pa.field("split", pa.string()),
+        pa.field("split_status", pa.string(), nullable=False),
         pa.field("event_count", pa.int64(), nullable=False),
         pa.field("active_node_count", pa.int64(), nullable=False),
         pa.field("isolated_node_count", pa.int64(), nullable=False),
@@ -43,7 +50,7 @@ SNAPSHOT_STATS_SCHEMA = pa.schema(
         pa.field("future_transaction_count", pa.int64(), nullable=False),
         pa.field("future_transaction_leakage_rate", pa.float64(), nullable=False),
     ],
-    metadata={b"schema_version": b"1.0"},
+    metadata={b"schema_version": b"1.1"},
 )
 
 
@@ -51,18 +58,58 @@ class GraphSnapshotBuildConfig(BaseModel):
     observation_days: int = Field(default=28, ge=1, le=3_650)
     anchor_step_days: int = Field(default=7, ge=1, le=365)
     include_events: bool = True
+    train_fraction: float = Field(default=0.6, gt=0.0, lt=1.0)
+    validation_fraction: float = Field(default=0.2, gt=0.0, lt=1.0)
+    embargo_days: int | None = Field(default=None, ge=0, le=3_650)
 
     @model_validator(mode="after")
     def validate_window_coverage(self) -> GraphSnapshotBuildConfig:
         if self.anchor_step_days > self.observation_days:
             raise ValueError("anchor_step_days must not exceed observation_days")
+        if self.train_fraction + self.validation_fraction >= 1.0:
+            raise ValueError("train_fraction + validation_fraction must be less than 1")
+        if self.effective_embargo_days < self.observation_days:
+            raise ValueError("embargo_days must cover the complete observation window")
         return self
+
+    @property
+    def effective_embargo_days(self) -> int:
+        return self.observation_days if self.embargo_days is None else self.embargo_days
+
+
+class GlobalGraphStatistics(BaseModel):
+    account_node_count: int
+    active_account_node_count: int
+    isolated_account_node_count: int
+    transaction_event_edge_count: int
+    directed_account_pair_edge_count: int
+    directed_non_self_pair_edge_count: int
+    self_loop_pair_edge_count: int
+    self_transfer_event_count: int
+    negative_event_count: int
+    total_amount: Decimal
+    total_abs_amount: Decimal
+    directed_density_excluding_self_loops: float
+    weak_component_count: int
+    largest_component_size: int
+    max_in_degree: int
+    max_out_degree: int
+    max_total_degree: int
+    mean_total_degree_all_nodes: float
+    median_total_degree_all_nodes: float
+    normal_label_count: int
+    suspect_label_count: int
+    victim_label_count: int
+    transaction_time_min: datetime
+    transaction_time_max: datetime
 
 
 class GraphSnapshotRecord(BaseModel):
     snapshot_id: str
     anchor_at: datetime
     window_start: datetime
+    split: SnapshotSplit | None
+    split_status: SnapshotSplitStatus
     event_count: int
     active_node_count: int
     isolated_node_count: int
@@ -84,7 +131,7 @@ class GraphSnapshotRecord(BaseModel):
 
 
 class GraphSnapshotSetManifest(BaseModel):
-    schema_version: str = "1.0"
+    schema_version: str = "1.1"
     implementation_version: str = SNAPSHOT_IMPLEMENTATION_VERSION
     snapshot_set_version: str
     data_version: str
@@ -93,6 +140,13 @@ class GraphSnapshotSetManifest(BaseModel):
     interval_semantics: str = "[window_start, anchor_at)"
     observation_days: int
     anchor_step_days: int
+    split_strategy: str = "chronological_purged"
+    train_fraction: float
+    validation_fraction: float
+    embargo_days: int
+    split_ready: bool
+    split_counts: dict[str, int]
+    embargo_snapshot_count: int
     account_count: int
     source_transaction_count: int
     covered_source_transaction_count: int
@@ -103,6 +157,8 @@ class GraphSnapshotSetManifest(BaseModel):
     label_time_status: Literal["available", "missing"]
     supervised_temporal_training_ready: bool
     eligibility_blockers: list[str] = Field(default_factory=list)
+    graph_semantics: dict[str, str]
+    global_statistics: GlobalGraphStatistics
     files: dict[str, str]
     snapshots: list[GraphSnapshotRecord]
 
@@ -136,6 +192,7 @@ def build_graph_snapshots(
         data_manifest.source_timezone,
         build_config,
     )
+    split_by_anchor = _assign_temporal_splits(anchors, build_config)
     version_material = json.dumps(
         {
             "implementation": SNAPSHOT_IMPLEMENTATION_VERSION,
@@ -151,9 +208,7 @@ def build_graph_snapshots(
     if manifest_path.exists():
         return GraphSnapshotSetManifest.load(manifest_path)
     if output_dir.exists():
-        raise ArtifactNotReadyError(
-            f"incomplete graph snapshot artifact exists: {output_dir}"
-        )
+        raise ArtifactNotReadyError(f"incomplete graph snapshot artifact exists: {output_dir}")
 
     accounts_path = data_dir / "accounts.parquet"
     labels_path = data_dir / "labels.parquet"
@@ -174,10 +229,17 @@ def build_graph_snapshots(
                 transaction_glob,
             )
             _validate_normalized_source(connection, data_manifest)
+            _create_global_graph_views(connection)
+            global_statistics = _write_global_graph_files(
+                connection,
+                temporary_dir,
+                data_manifest,
+            )
             snapshot_records = _write_snapshots(
                 connection,
                 temporary_dir,
                 anchors,
+                split_by_anchor,
                 data_manifest,
                 build_config,
             )
@@ -186,6 +248,7 @@ def build_graph_snapshots(
                 anchors,
                 build_config.observation_days,
             )
+            _write_tabular_samples(connection, temporary_dir)
         finally:
             connection.close()
 
@@ -200,11 +263,21 @@ def build_graph_snapshots(
             schema=SNAPSHOT_STATS_SCHEMA,
         )
         pq.write_table(stats_table, temporary_dir / "snapshot_stats.parquet", compression="zstd")
+        pacsv.write_csv(stats_table, temporary_dir / "samples" / "snapshot_stats.csv")
 
         label_time_status: Literal["available", "missing"] = (
             "available" if data_manifest.temporal_training_ready else "missing"
         )
         blockers = [] if data_manifest.temporal_training_ready else ["LABEL_TIME_MISSING"]
+        split_counts = Counter(
+            record.split for record in snapshot_records if record.split is not None
+        )
+        split_ready = set(split_counts) == {"train", "validation", "test"}
+        if not split_ready:
+            blockers.append("INSUFFICIENT_ANCHORS_FOR_PURGED_SPLIT")
+        embargo_snapshot_count = sum(
+            record.split_status == "embargo" for record in snapshot_records
+        )
         manifest = GraphSnapshotSetManifest(
             snapshot_set_version=snapshot_set_version,
             data_version=data_version,
@@ -212,6 +285,16 @@ def build_graph_snapshots(
             source_timezone=data_manifest.source_timezone,
             observation_days=build_config.observation_days,
             anchor_step_days=build_config.anchor_step_days,
+            train_fraction=build_config.train_fraction,
+            validation_fraction=build_config.validation_fraction,
+            embargo_days=build_config.effective_embargo_days,
+            split_ready=split_ready,
+            split_counts={
+                "train": split_counts["train"],
+                "validation": split_counts["validation"],
+                "test": split_counts["test"],
+            },
+            embargo_snapshot_count=embargo_snapshot_count,
             account_count=data_manifest.account_rows,
             source_transaction_count=data_manifest.transaction_rows,
             covered_source_transaction_count=covered_source_transactions,
@@ -224,21 +307,45 @@ def build_graph_snapshots(
             label_time_status=label_time_status,
             supervised_temporal_training_ready=data_manifest.temporal_training_ready,
             eligibility_blockers=blockers,
+            graph_semantics={
+                "node": "one desensitized bank account",
+                "event_edge": (
+                    "one normalized transaction event, payer_account_id -> payee_account_id"
+                ),
+                "pair_edge": "events aggregated by directed payer/payee account pair",
+                "edge_direction": "payer_account_id -> payee_account_id",
+                "edge_weight": "transaction_count, amount_sum and amount_abs_sum",
+                "snapshot_window": "[anchor_at - observation_days, anchor_at)",
+                "label_boundary": (
+                    "labels are stored separately and never written to graph node tables"
+                ),
+            },
+            global_statistics=global_statistics,
             files={
                 "accounts": "accounts.parquet",
                 "labels": "labels.parquet",
+                "global_nodes": "global_nodes.parquet",
+                "global_directed_edges": "global_directed_edges.parquet",
+                "global_statistics": "global_graph_statistics.json",
                 "snapshot_stats": "snapshot_stats.parquet",
+                "audit": "audit.json",
+                "samples": "samples/",
                 "summary": "summary.md",
                 "snapshot_pattern": "snapshots/<snapshot_id>/",
             },
             snapshots=snapshot_records,
         )
+        (temporary_dir / "global_graph_statistics.json").write_text(
+            global_statistics.model_dump_json(indent=2), encoding="utf-8"
+        )
+        (temporary_dir / "audit.json").write_text(
+            json.dumps(_build_audit_report(manifest), ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
         (temporary_dir / "manifest.json").write_text(
             manifest.model_dump_json(indent=2), encoding="utf-8"
         )
-        (temporary_dir / "summary.md").write_text(
-            _render_summary(manifest), encoding="utf-8"
-        )
+        (temporary_dir / "summary.md").write_text(_render_summary(manifest), encoding="utf-8")
     return manifest
 
 
@@ -278,6 +385,70 @@ def _build_anchors(
     return anchors
 
 
+def _assign_temporal_splits(
+    anchors: list[datetime],
+    config: GraphSnapshotBuildConfig,
+) -> dict[datetime, SnapshotSplitAssignment]:
+    assignments: dict[datetime, SnapshotSplitAssignment] = {
+        anchor: (None, "unassigned") for anchor in anchors
+    }
+    if len(anchors) < 3:
+        return assignments
+
+    embargo = timedelta(days=config.effective_embargo_days)
+    test_fraction = 1.0 - config.train_fraction - config.validation_fraction
+    best: tuple[tuple[float, ...], tuple[int, int, int, int]] | None = None
+    for train_end in range(len(anchors) - 2):
+        validation_start = bisect_left(
+            anchors,
+            anchors[train_end] + embargo,
+            lo=train_end + 1,
+        )
+        if validation_start >= len(anchors) - 1:
+            continue
+        for validation_end in range(validation_start, len(anchors) - 1):
+            test_start = bisect_left(
+                anchors,
+                anchors[validation_end] + embargo,
+                lo=validation_end + 1,
+            )
+            if test_start >= len(anchors):
+                continue
+            train_count = train_end + 1
+            validation_count = validation_end - validation_start + 1
+            test_count = len(anchors) - test_start
+            assigned_count = train_count + validation_count + test_count
+            fraction_error = (
+                abs(train_count / assigned_count - config.train_fraction)
+                + abs(validation_count / assigned_count - config.validation_fraction)
+                + abs(test_count / assigned_count - test_fraction)
+            )
+            score = (
+                float(len(anchors) - assigned_count),
+                fraction_error,
+                abs(train_count - validation_count),
+                float(train_end),
+            )
+            candidate = (score, (train_end, validation_start, validation_end, test_start))
+            if best is None or candidate[0] < best[0]:
+                best = candidate
+
+    if best is None:
+        return assignments
+
+    train_end, validation_start, validation_end, test_start = best[1]
+    for index, anchor in enumerate(anchors):
+        if index <= train_end:
+            assignments[anchor] = ("train", "assigned")
+        elif validation_start <= index <= validation_end:
+            assignments[anchor] = ("validation", "assigned")
+        elif index >= test_start:
+            assignments[anchor] = ("test", "assigned")
+        else:
+            assignments[anchor] = (None, "embargo")
+    return assignments
+
+
 def _register_source_views(
     connection: duckdb.DuckDBPyConnection,
     accounts_path: Path,
@@ -311,6 +482,285 @@ def _register_source_views(
             is_cross_region,
             source_row
         FROM read_parquet('{transaction_sql}', hive_partitioning = true);
+        """
+    )
+
+
+def _create_global_graph_views(connection: duckdb.DuckDBPyConnection) -> None:
+    connection.execute(
+        """
+        CREATE TEMP VIEW global_graph_active_accounts AS
+        SELECT payer_account_id AS account_id FROM transactions
+        UNION
+        SELECT payee_account_id AS account_id FROM transactions;
+
+        CREATE TEMP VIEW global_graph_edges AS
+        SELECT
+            payer_account_id,
+            payee_account_id,
+            count(*)::BIGINT AS transaction_count,
+            sum(amount) AS amount_sum,
+            sum(abs(amount)) AS amount_abs_sum,
+            min(amount) AS amount_min,
+            max(amount) AS amount_max,
+            min(event_time_utc) AS first_event_utc,
+            max(event_time_utc) AS last_event_utc,
+            sum(CASE WHEN is_negative THEN 1 ELSE 0 END)::BIGINT AS negative_event_count,
+            sum(CASE WHEN is_self_transfer THEN 1 ELSE 0 END)::BIGINT AS self_transfer_count
+        FROM transactions
+        GROUP BY payer_account_id, payee_account_id;
+        """
+    )
+
+
+def _write_global_graph_files(
+    connection: duckdb.DuckDBPyConnection,
+    temporary_dir: Path,
+    data_manifest: DataManifest,
+) -> GlobalGraphStatistics:
+    nodes_path = _sql_path(temporary_dir / "global_nodes.parquet")
+    edges_path = _sql_path(temporary_dir / "global_directed_edges.parquet")
+    connection.execute(
+        f"""
+        COPY (
+            WITH outgoing AS (
+                SELECT
+                    payer_account_id AS account_id,
+                    count(*)::BIGINT AS out_transaction_count,
+                    count(DISTINCT CASE
+                        WHEN payer_account_id <> payee_account_id THEN payee_account_id
+                    END)::BIGINT AS out_degree,
+                    sum(amount) AS out_amount_sum,
+                    sum(abs(amount)) AS out_amount_abs_sum,
+                    min(event_time_utc) AS first_out_utc,
+                    max(event_time_utc) AS last_out_utc
+                FROM transactions
+                GROUP BY payer_account_id
+            ),
+            incoming AS (
+                SELECT
+                    payee_account_id AS account_id,
+                    count(*)::BIGINT AS in_transaction_count,
+                    count(DISTINCT CASE
+                        WHEN payer_account_id <> payee_account_id THEN payer_account_id
+                    END)::BIGINT AS in_degree,
+                    sum(amount) AS in_amount_sum,
+                    sum(abs(amount)) AS in_amount_abs_sum,
+                    min(event_time_utc) AS first_in_utc,
+                    max(event_time_utc) AS last_in_utc
+                FROM transactions
+                GROUP BY payee_account_id
+            )
+            SELECT
+                accounts.account_id,
+                CASE WHEN active.account_id IS NULL THEN false ELSE true END AS is_active,
+                coalesce(incoming.in_degree, 0)::BIGINT AS in_degree,
+                coalesce(outgoing.out_degree, 0)::BIGINT AS out_degree,
+                coalesce(incoming.in_transaction_count, 0)::BIGINT AS in_transaction_count,
+                coalesce(outgoing.out_transaction_count, 0)::BIGINT AS out_transaction_count,
+                coalesce(incoming.in_amount_sum, 0) AS in_amount_sum,
+                coalesce(outgoing.out_amount_sum, 0) AS out_amount_sum,
+                coalesce(incoming.in_amount_abs_sum, 0) AS in_amount_abs_sum,
+                coalesce(outgoing.out_amount_abs_sum, 0) AS out_amount_abs_sum,
+                coalesce(incoming.in_amount_sum, 0)
+                    - coalesce(outgoing.out_amount_sum, 0) AS net_flow_amount,
+                least(incoming.first_in_utc, outgoing.first_out_utc) AS first_activity_utc,
+                greatest(incoming.last_in_utc, outgoing.last_out_utc) AS last_activity_utc
+            FROM accounts
+            LEFT JOIN global_graph_active_accounts active USING (account_id)
+            LEFT JOIN outgoing USING (account_id)
+            LEFT JOIN incoming USING (account_id)
+            ORDER BY accounts.account_id
+        ) TO '{nodes_path}' (FORMAT PARQUET, COMPRESSION ZSTD);
+
+        COPY (
+            SELECT * FROM global_graph_edges
+            ORDER BY payer_account_id, payee_account_id
+        ) TO '{edges_path}' (FORMAT PARQUET, COMPRESSION ZSTD);
+        """
+    )
+    return _global_graph_statistics(connection, temporary_dir, data_manifest)
+
+
+def _global_graph_statistics(
+    connection: duckdb.DuckDBPyConnection,
+    temporary_dir: Path,
+    data_manifest: DataManifest,
+) -> GlobalGraphStatistics:
+    node_path = str((temporary_dir / "global_nodes.parquet").resolve())
+    edge_path = str((temporary_dir / "global_directed_edges.parquet").resolve())
+    event_stats = connection.execute(
+        """
+        SELECT
+            count(*),
+            coalesce(sum(CASE WHEN is_self_transfer THEN 1 ELSE 0 END), 0),
+            coalesce(sum(CASE WHEN is_negative THEN 1 ELSE 0 END), 0),
+            coalesce(sum(amount), 0),
+            coalesce(sum(abs(amount)), 0),
+            min(event_time_utc),
+            max(event_time_utc)
+        FROM transactions
+        """
+    ).fetchone()
+    node_stats = connection.execute(
+        """
+        SELECT
+            count(*),
+            count(*) FILTER (WHERE is_active),
+            count(*) FILTER (WHERE NOT is_active),
+            coalesce(max(in_degree), 0),
+            coalesce(max(out_degree), 0),
+            coalesce(max(in_degree + out_degree), 0),
+            coalesce(avg(in_degree + out_degree), 0),
+            coalesce(median(in_degree + out_degree), 0),
+            coalesce(sum(out_transaction_count), 0),
+            coalesce(sum(in_transaction_count), 0)
+        FROM read_parquet(?)
+        """,
+        [node_path],
+    ).fetchone()
+    edge_stats = connection.execute(
+        """
+        SELECT
+            count(*),
+            count(*) FILTER (WHERE payer_account_id <> payee_account_id),
+            count(*) FILTER (WHERE payer_account_id = payee_account_id),
+            coalesce(sum(transaction_count), 0),
+            coalesce(sum(amount_sum), 0)
+        FROM read_parquet(?)
+        """,
+        [edge_path],
+    ).fetchone()
+    if event_stats is None or node_stats is None or edge_stats is None:
+        raise ArtifactNotReadyError("global graph statistics are unavailable")
+
+    event_count = int(event_stats[0])
+    if int(node_stats[0]) != data_manifest.account_rows:
+        raise DataContractError("global graph node count does not match the account manifest")
+    if int(node_stats[1]) != data_manifest.unique_active_accounts:
+        raise DataContractError("global active node count does not match the data manifest")
+    if int(node_stats[8]) != event_count or int(node_stats[9]) != event_count:
+        raise DataContractError("global graph node transaction counts do not reconcile")
+    if int(edge_stats[3]) != event_count:
+        raise DataContractError("global directed edge transaction counts do not reconcile")
+    if Decimal(edge_stats[4]) != Decimal(event_stats[3]):
+        raise DataContractError("global directed edge amounts do not reconcile")
+
+    node_columns = set(pq.read_schema(node_path).names)
+    if node_columns & {"label", "label_type", "risk_event_at", "label_available_at"}:
+        raise ProductionSafetyError("risk labels entered the global graph node table")
+
+    active_accounts = {
+        str(row[0])
+        for row in connection.execute(
+            "SELECT account_id FROM global_graph_active_accounts"
+        ).fetchall()
+    }
+    edge_pairs = [
+        (str(row[0]), str(row[1]))
+        for row in connection.execute(
+            "SELECT payer_account_id, payee_account_id FROM global_graph_edges"
+        ).fetchall()
+    ]
+    weak_component_count, largest_component_size = _weak_component_stats(
+        active_accounts, edge_pairs
+    )
+    label_counts = Counter(
+        {
+            int(row[0]): int(row[1])
+            for row in connection.execute(
+                "SELECT label, count(*) FROM labels GROUP BY label"
+            ).fetchall()
+        }
+    )
+    node_count = int(node_stats[0])
+    possible_non_self_edges = node_count * (node_count - 1)
+    return GlobalGraphStatistics(
+        account_node_count=node_count,
+        active_account_node_count=int(node_stats[1]),
+        isolated_account_node_count=int(node_stats[2]),
+        transaction_event_edge_count=event_count,
+        directed_account_pair_edge_count=int(edge_stats[0]),
+        directed_non_self_pair_edge_count=int(edge_stats[1]),
+        self_loop_pair_edge_count=int(edge_stats[2]),
+        self_transfer_event_count=int(event_stats[1]),
+        negative_event_count=int(event_stats[2]),
+        total_amount=Decimal(event_stats[3]),
+        total_abs_amount=Decimal(event_stats[4]),
+        directed_density_excluding_self_loops=(
+            int(edge_stats[1]) / possible_non_self_edges if possible_non_self_edges else 0.0
+        ),
+        weak_component_count=weak_component_count,
+        largest_component_size=largest_component_size,
+        max_in_degree=int(node_stats[3]),
+        max_out_degree=int(node_stats[4]),
+        max_total_degree=int(node_stats[5]),
+        mean_total_degree_all_nodes=float(node_stats[6]),
+        median_total_degree_all_nodes=float(node_stats[7]),
+        normal_label_count=label_counts[0],
+        suspect_label_count=label_counts[1],
+        victim_label_count=label_counts[2],
+        transaction_time_min=_as_utc(event_stats[5]),
+        transaction_time_max=_as_utc(event_stats[6]),
+    )
+
+
+def _write_tabular_samples(
+    connection: duckdb.DuckDBPyConnection,
+    temporary_dir: Path,
+) -> None:
+    sample_dir = temporary_dir / "samples"
+    sample_dir.mkdir()
+    accounts_sample = _sql_path(sample_dir / "accounts.csv")
+    labels_sample = _sql_path(sample_dir / "labels.csv")
+    events_sample = _sql_path(sample_dir / "transaction_events.csv")
+    nodes_sample = _sql_path(sample_dir / "global_nodes.csv")
+    edges_sample = _sql_path(sample_dir / "global_directed_edges.csv")
+    global_nodes_path = _sql_path(temporary_dir / "global_nodes.parquet")
+    global_edges_path = _sql_path(temporary_dir / "global_directed_edges.parquet")
+    connection.execute(
+        f"""
+        COPY (
+            SELECT * FROM accounts ORDER BY account_id LIMIT 25
+        ) TO '{accounts_sample}' (HEADER, DELIMITER ',');
+
+        COPY (
+            SELECT * EXCLUDE (sample_rank)
+            FROM (
+                SELECT *, row_number() OVER (PARTITION BY label ORDER BY account_id) sample_rank
+                FROM labels
+            )
+            WHERE sample_rank <= 10
+            ORDER BY label, account_id
+        ) TO '{labels_sample}' (HEADER, DELIMITER ',');
+
+        COPY (
+            SELECT * EXCLUDE (sample_rank)
+            FROM (
+                SELECT *, row_number() OVER (
+                    PARTITION BY date_trunc('month', event_time_utc)
+                    ORDER BY event_time_utc, transaction_id
+                ) sample_rank
+                FROM transactions
+            )
+            WHERE sample_rank <= 5
+            ORDER BY event_time_utc, transaction_id
+        ) TO '{events_sample}' (HEADER, DELIMITER ',');
+
+        COPY (
+            SELECT * FROM read_parquet('{global_nodes_path}')
+            ORDER BY in_degree + out_degree DESC,
+                     in_amount_abs_sum + out_amount_abs_sum DESC,
+                     account_id
+            LIMIT 25
+        ) TO '{nodes_sample}' (HEADER, DELIMITER ',');
+
+        COPY (
+            SELECT * FROM read_parquet('{global_edges_path}')
+            ORDER BY amount_abs_sum DESC, transaction_count DESC,
+                     payer_account_id, payee_account_id
+            LIMIT 25
+        ) TO '{edges_sample}' (HEADER, DELIMITER ',');
         """
     )
 
@@ -357,6 +807,7 @@ def _write_snapshots(
     connection: duckdb.DuckDBPyConnection,
     temporary_dir: Path,
     anchors: list[datetime],
+    split_by_anchor: dict[datetime, SnapshotSplitAssignment],
     data_manifest: DataManifest,
     config: GraphSnapshotBuildConfig,
 ) -> list[GraphSnapshotRecord]:
@@ -365,6 +816,7 @@ def _write_snapshots(
     snapshots_dir.mkdir()
     for index, anchor in enumerate(anchors, start=1):
         window_start = anchor - timedelta(days=config.observation_days)
+        split, split_status = split_by_anchor[anchor]
         snapshot_id = f"s{index:03d}_{anchor.strftime('%Y%m%dT%H%M%S%fZ')}"
         snapshot_dir = snapshots_dir / snapshot_id
         snapshot_dir.mkdir()
@@ -381,6 +833,8 @@ def _write_snapshots(
                 snapshot_id,
                 anchor,
                 window_start,
+                split,
+                split_status,
                 data_manifest.account_rows,
                 files,
             )
@@ -515,6 +969,8 @@ def _snapshot_record(
     snapshot_id: str,
     anchor: datetime,
     window_start: datetime,
+    split: SnapshotSplit | None,
+    split_status: SnapshotSplitStatus,
     account_count: int,
     files: dict[str, str],
 ) -> GraphSnapshotRecord:
@@ -537,6 +993,9 @@ def _snapshot_record(
     ).fetchone()
     node_path = str((snapshot_dir / files["nodes"]).resolve())
     edge_path = str((snapshot_dir / files["edges"]).resolve())
+    node_columns = set(pq.read_schema(node_path).names)
+    if node_columns & {"label", "label_type", "risk_event_at", "label_available_at"}:
+        raise ProductionSafetyError(f"risk labels entered snapshot node table {snapshot_id}")
     graph_stats = connection.execute(
         """
         SELECT
@@ -576,9 +1035,7 @@ def _snapshot_record(
 
     active_accounts = {
         str(row[0])
-        for row in connection.execute(
-            "SELECT account_id FROM snapshot_active_accounts"
-        ).fetchall()
+        for row in connection.execute("SELECT account_id FROM snapshot_active_accounts").fetchall()
     }
     edge_pairs = [
         (str(row[0]), str(row[1]))
@@ -606,6 +1063,8 @@ def _snapshot_record(
         snapshot_id=snapshot_id,
         anchor_at=anchor,
         window_start=window_start,
+        split=split,
+        split_status=split_status,
         event_count=event_count,
         active_node_count=int(graph_stats[0]),
         isolated_node_count=account_count - int(graph_stats[0]),
@@ -648,9 +1107,7 @@ def _covered_source_transactions(
         "snapshot_windows",
         pa.table(
             {
-                "window_start": [
-                    anchor - timedelta(days=observation_days) for anchor in anchors
-                ],
+                "window_start": [anchor - timedelta(days=observation_days) for anchor in anchors],
                 "anchor_at": anchors,
             }
         ),
@@ -709,6 +1166,95 @@ def _flat_stats(record: GraphSnapshotRecord) -> dict[str, Any]:
     return payload
 
 
+def _build_audit_report(manifest: GraphSnapshotSetManifest) -> dict[str, Any]:
+    leakage_count = sum(record.future_transaction_count for record in manifest.snapshots)
+    reconciliation_ok = all(
+        record.event_count >= record.directed_edge_count for record in manifest.snapshots
+    )
+    split_gaps: dict[str, float | None] = {}
+    split_overlap_ok = manifest.split_ready
+    for earlier, later in (("train", "validation"), ("validation", "test")):
+        earlier_records = [record for record in manifest.snapshots if record.split == earlier]
+        later_records = [record for record in manifest.snapshots if record.split == later]
+        if not earlier_records or not later_records:
+            split_gaps[f"{earlier}_to_{later}_days"] = None
+            split_overlap_ok = False
+            continue
+        gap = min(record.window_start for record in later_records) - max(
+            record.anchor_at for record in earlier_records
+        )
+        split_gaps[f"{earlier}_to_{later}_days"] = gap.total_seconds() / 86_400
+        split_overlap_ok = split_overlap_ok and gap >= timedelta(0)
+
+    checks: list[dict[str, Any]] = [
+        {
+            "check": "source_transaction_coverage",
+            "status": "PASS" if manifest.source_transaction_coverage_rate == 1.0 else "FAIL",
+            "observed": manifest.source_transaction_coverage_rate,
+            "expected": 1.0,
+        },
+        {
+            "check": "future_transaction_leakage",
+            "status": "PASS" if leakage_count == 0 else "FAIL",
+            "observed": leakage_count,
+            "expected": 0,
+        },
+        {
+            "check": "node_edge_event_reconciliation",
+            "status": "PASS" if reconciliation_ok else "FAIL",
+            "observed": "all snapshots reconciled" if reconciliation_ok else "mismatch",
+        },
+        {
+            "check": "label_isolation_from_node_tables",
+            "status": "PASS",
+            "observed": "labels stored only in labels.parquet",
+        },
+        {
+            "check": "global_event_edge_reconciliation",
+            "status": (
+                "PASS"
+                if manifest.global_statistics.transaction_event_edge_count
+                == manifest.source_transaction_count
+                else "FAIL"
+            ),
+            "observed": manifest.global_statistics.transaction_event_edge_count,
+            "expected": manifest.source_transaction_count,
+        },
+        {
+            "check": "chronological_purged_split",
+            "status": "PASS" if split_overlap_ok else "NOT_READY",
+            "observed": {
+                "split_counts": manifest.split_counts,
+                "embargo_snapshot_count": manifest.embargo_snapshot_count,
+                **split_gaps,
+            },
+        },
+    ]
+    required_checks_passed = all(check["status"] == "PASS" for check in checks[:-1])
+    return {
+        "schema_version": "1.0",
+        "snapshot_set_version": manifest.snapshot_set_version,
+        "data_version": manifest.data_version,
+        "task1_graph_acceptance_passed": required_checks_passed,
+        "purged_split_ready": split_overlap_ok,
+        "label_time_status": manifest.label_time_status,
+        "checks": checks,
+        "limitations": (
+            []
+            if manifest.label_time_status == "available"
+            else [
+                {
+                    "code": "LABEL_TIME_MISSING",
+                    "impact": (
+                        "does not block graph construction; blocks strict supervised temporal "
+                        "risk prediction claims"
+                    ),
+                }
+            ]
+        ),
+    }
+
+
 def _render_summary(manifest: GraphSnapshotSetManifest) -> str:
     source_timezone = ZoneInfo(manifest.source_timezone)
     label_note = (
@@ -724,21 +1270,35 @@ def _render_summary(manifest: GraphSnapshotSetManifest) -> str:
         f"- 观察窗口：{manifest.observation_days} 天",
         f"- 常规步长：{manifest.anchor_step_days} 天",
         f"- 区间语义：`{manifest.interval_semantics}`",
+        f"- 时间分区：train={manifest.split_counts['train']}，"
+        f"validation={manifest.split_counts['validation']}，test={manifest.split_counts['test']}，"
+        f"embargo={manifest.embargo_snapshot_count}",
+        f"- 分区隔离期：{manifest.embargo_days} 天",
         f"- 快照数量：{manifest.snapshot_count}",
         f"- 源交易覆盖率：{manifest.source_transaction_coverage_rate:.2%}",
         f"- 标签说明：{label_note}",
         "",
+        "## 全局图统计",
+        "",
+        f"- 账户节点：{manifest.global_statistics.account_node_count:,}",
+        f"- 交易事件边：{manifest.global_statistics.transaction_event_edge_count:,}",
+        f"- 聚合有向账户对边：{manifest.global_statistics.directed_account_pair_edge_count:,}",
+        f"- 非自环有向密度：{manifest.global_statistics.directed_density_excluding_self_loops:.6%}",
+        f"- 最大总度：{manifest.global_statistics.max_total_degree:,}",
+        "",
         "## 快照统计",
         "",
-        f"| 快照 | 观察截止时间（{manifest.source_timezone}） | 交易数 | 活跃节点 | 聚合有向边 | "
+        f"| 快照 | 分区 | 观察截止时间（{manifest.source_timezone}） | 交易数 | "
+        "活跃节点 | 聚合有向边 | "
         "弱连通分量 | 最大分量 | 嫌疑账户 | 受害账户 | 未来交易泄露 |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
+        "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|",
     ]
     lines.extend(
         "| "
         + " | ".join(
             [
                 record.snapshot_id,
+                record.split or record.split_status,
                 record.anchor_at.astimezone(source_timezone).isoformat(),
                 f"{record.event_count:,}",
                 f"{record.active_node_count:,}",
@@ -759,8 +1319,11 @@ def _render_summary(manifest: GraphSnapshotSetManifest) -> str:
             "## 使用边界",
             "",
             "- `accounts.parquet` 与 `labels.parquet` 为静态表；标签不得作为模型输入特征。",
+            "- `global_nodes.parquet` 与 `global_directed_edges.parquet` 是全量期图；"
+            "事件边与聚合账户对边使用不同统计口径。",
             "- 每个快照的 `nodes.parquet` 与 `edges.parquet` 只使用观察截止时间以前的交易。",
             "- `events.parquet` 保留源交易 ID，用于聚合对账、资金链路解释和审计追溯。",
+            "- `split_status=embargo` 的快照仅用于图谱展示与审计，不进入后续模型训练或评估。",
             "- 图结构特征、风险模型和跨快照趋势特征应在本快照集之上另行构建。",
             "",
         ]

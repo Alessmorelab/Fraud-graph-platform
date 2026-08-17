@@ -19,7 +19,7 @@ from fraud_graph.evidence.evaluation import (
 )
 from fraud_graph.evidence.render import render_markdown
 
-CASE_EXPORT_VERSION = "review-cases-v3"
+CASE_EXPORT_VERSION = "review-cases-v5"
 
 
 def evidence_packet_sha256(packet: EvidencePacket) -> str:
@@ -166,6 +166,8 @@ def build_automated_prechecks(records: list[CaseSampleRecord]) -> list[ManualCas
             evidence_types.append("TRANSACTION")
         if any(len(path.steps) >= 2 for path in record.packet.paths):
             evidence_types.append("GRAPH_STRUCTURE")
+        if record.packet.patterns and "GRAPH_STRUCTURE" not in evidence_types:
+            evidence_types.append("GRAPH_STRUCTURE")
         checks.append(
             ManualCaseReview(
                 case_id=record.case_id,
@@ -213,6 +215,7 @@ def export_illustrative_cases(
             "implementation": CASE_EXPORT_VERSION,
             "score_version": score_version,
             "account_ids": [packet.account_id for packet in packets],
+            "packet_sha256": [evidence_packet_sha256(packet) for packet in packets],
         },
         sort_keys=True,
     )

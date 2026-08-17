@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 from pydantic import BaseModel, Field
 from sklearn.metrics import average_precision_score, brier_score_loss, roc_auc_score
 
@@ -40,8 +41,8 @@ class SubgroupMetric(BaseModel):
 
 
 def evaluate_binary_scores(
-    target: np.ndarray | list[int],
-    scores: np.ndarray | list[float],
+    target: NDArray[np.integer[Any]] | list[int],
+    scores: NDArray[np.floating[Any]] | list[float],
     *,
     top_fraction: float = 0.05,
 ) -> BinaryMetrics:
@@ -129,8 +130,8 @@ def compare_metrics(candidate: BinaryMetrics, baseline: BinaryMetrics) -> Metric
 
 def evaluate_subgroups(
     frame: Any,
-    target: np.ndarray | list[int],
-    scores: np.ndarray | list[float],
+    target: NDArray[np.integer[Any]] | list[int],
+    scores: NDArray[np.floating[Any]] | list[float],
     columns: list[str],
     *,
     top_fraction: float = 0.05,

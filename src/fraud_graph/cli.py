@@ -22,10 +22,12 @@ from fraud_graph.evidence.evaluation import (
     evaluate_manual_cases,
     evaluate_report_consistency,
 )
+from fraud_graph.evidence.task3 import build_task3_artifacts
 from fraud_graph.features.builder import build_account_features
 from fraud_graph.graph.path_engine import PathSearchConfig
 from fraud_graph.graph.snapshots import GraphSnapshotBuildConfig, build_graph_snapshots
 from fraud_graph.logging import configure_logging
+from fraud_graph.modeling.retrospective import run_retrospective_experiment
 from fraud_graph.modeling.risk_model import score_accounts, train_risk_model
 from fraud_graph.service.app import ServiceState, create_app
 from fraud_graph.temporal.samples import TemporalSampleConfig, build_temporal_samples
@@ -77,6 +79,9 @@ def build_graph_snapshots_command(
     observation_days: Annotated[int | None, typer.Option(min=1)] = None,
     anchor_step_days: Annotated[int | None, typer.Option(min=1)] = None,
     include_events: Annotated[bool | None, typer.Option()] = None,
+    train_fraction: Annotated[float | None, typer.Option(min=0.01, max=0.98)] = None,
+    validation_fraction: Annotated[float | None, typer.Option(min=0.01, max=0.98)] = None,
+    embargo_days: Annotated[int | None, typer.Option(min=0)] = None,
     config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)] = Path(
         "config/default.yaml"
     ),
@@ -88,6 +93,15 @@ def build_graph_snapshots_command(
         include_events=(
             config.snapshots.include_events if include_events is None else include_events
         ),
+        train_fraction=(
+            config.snapshots.train_fraction if train_fraction is None else train_fraction
+        ),
+        validation_fraction=(
+            config.snapshots.validation_fraction
+            if validation_fraction is None
+            else validation_fraction
+        ),
+        embargo_days=(config.snapshots.embargo_days if embargo_days is None else embargo_days),
     )
     manifest = build_graph_snapshots(
         config.storage.normalized_dir,
@@ -267,6 +281,37 @@ def export_case_samples_command(
     typer.echo(manifest.model_dump_json(indent=2))
 
 
+@app.command("build-task3-artifacts")
+def build_task3_artifacts_command(
+    experiment_version: Annotated[str, typer.Option()],
+    candidate_limit: Annotated[int, typer.Option(min=5, max=200)] = 40,
+    case_limit: Annotated[int, typer.Option(min=5, max=20)] = 5,
+    top_k: Annotated[int, typer.Option("--top-k", min=1, max=100)] = 20,
+    config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)] = Path(
+        "config/default.yaml"
+    ),
+) -> None:
+    config = _config(config_path)
+    path_config = PathSearchConfig(
+        max_hops=config.paths.max_hops,
+        max_gap=timedelta(hours=config.paths.max_gap_hours),
+        max_paths=config.paths.max_paths,
+        min_amount_ratio=config.paths.min_amount_ratio,
+        max_amount_ratio=config.paths.max_amount_ratio,
+    )
+    manifest = build_task3_artifacts(
+        config.storage.normalized_dir,
+        config.storage.feature_dir,
+        config.storage.artifact_dir,
+        experiment_version,
+        path_config=path_config,
+        candidate_limit=candidate_limit,
+        case_limit=case_limit,
+        top_k=top_k,
+    )
+    typer.echo(manifest.model_dump_json(indent=2))
+
+
 @app.command()
 def train(
     feature_version: Annotated[str, typer.Option()],
@@ -288,6 +333,32 @@ def train(
         feature_set=feature_set,  # type: ignore[arg-type]
         allow_static_labels=allow_static_labels,
         random_seed=config.model.random_seed,
+        top_fraction=config.model.top_fraction,
+    )
+    typer.echo(metadata.model_dump_json(indent=2))
+
+
+@app.command("run-retrospective-experiment")
+def run_retrospective_experiment_command(
+    feature_version: Annotated[str, typer.Option()],
+    snapshot_set_version: Annotated[str, typer.Option()],
+    allow_static_labels: Annotated[bool, typer.Option()] = False,
+    config_path: Annotated[Path, typer.Option("--config", exists=True, dir_okay=False)] = Path(
+        "config/default.yaml"
+    ),
+) -> None:
+    config = _config(config_path)
+    metadata = run_retrospective_experiment(
+        config.storage.normalized_dir,
+        config.storage.feature_dir,
+        config.storage.artifact_dir,
+        feature_version,
+        snapshot_set_version,
+        positive_labels=config.model.positive_labels,
+        allow_static_labels=allow_static_labels,
+        random_seed=config.model.random_seed,
+        validation_fraction=config.model.validation_size,
+        test_fraction=config.model.test_size,
         top_fraction=config.model.top_fraction,
     )
     typer.echo(metadata.model_dump_json(indent=2))

@@ -7,6 +7,7 @@ from fraud_graph.domain import (
     EvidenceFact,
     EvidenceGrade,
     EvidencePacket,
+    FlowPattern,
     RiskScore,
     SuspiciousPath,
 )
@@ -16,8 +17,10 @@ def build_evidence_packet(
     score: RiskScore,
     paths: list[SuspiciousPath],
     feature_values: dict[str, Any] | None = None,
+    patterns: list[FlowPattern] | None = None,
 ) -> EvidencePacket:
     features = feature_values or {}
+    flow_patterns = patterns or []
     facts = [
         EvidenceFact(
             code="MODEL_RISK_SCORE",
@@ -64,6 +67,22 @@ def build_evidence_packet(
                 transaction_ids=transaction_ids,
             )
         )
+    if flow_patterns:
+        pattern_transaction_ids = sorted(
+            {
+                transaction_id
+                for pattern in flow_patterns
+                for transaction_id in pattern.transaction_ids
+            }
+        )
+        facts.append(
+            EvidenceFact(
+                code="FLOW_PATTERNS",
+                description="Convergence, dispersion, pass-through, or reciprocal flow patterns",
+                value=len(flow_patterns),
+                transaction_ids=pattern_transaction_ids,
+            )
+        )
 
     limitations: list[str] = []
     if multi_hop_paths:
@@ -103,6 +122,7 @@ def build_evidence_packet(
         grade=grade,
         facts=facts,
         paths=paths,
+        patterns=flow_patterns,
         limitations=limitations,
         recommended_actions=_recommended_actions(grade),
     )
